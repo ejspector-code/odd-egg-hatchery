@@ -76,6 +76,28 @@ button{font:inherit;color:inherit}
 .box.ask::after{content:"";display:inline-block;width:.07em;height:.8em;background:var(--ink);margin-left:.04em;vertical-align:-.06em;animation:blink 1s steps(2) infinite}
 .box.good{border-style:solid;background:#D8F5E7;color:var(--good)}
 .tag{display:inline-block;background:var(--lav);border:3px solid var(--ink);border-radius:999px;padding:2px 12px;font-size:.9rem;margin-bottom:6px}
+.tag.lock{background:#E6E0EC}
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+.col{display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+.quest{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:1rem}
+.quest.done{color:var(--good)}
+.mini{flex:none;width:72px;height:14px;border:2px solid var(--ink);border-radius:999px;background:#F1ECF5;overflow:hidden}
+.mini i{display:block;height:100%;background:var(--sun)}
+.levelup{text-align:center;background:#FFF1B8}
+.hearts{font-size:1.4rem;letter-spacing:3px}
+.sbarwrap{height:22px;border:3px solid var(--ink);border-radius:999px;background:#F1ECF5;overflow:hidden;margin-bottom:10px}
+#sbar{height:100%;background:var(--coral);transition:width .2s linear}
+.flash{color:var(--bad);font-size:1.6rem;min-height:1.5em}
+.box.bad{border-style:solid;background:#FBE1DF;color:var(--bad)}
+.q.word{font-size:clamp(1.8rem,5.5vw,3.2rem)}
+.box.word{min-width:7ch;letter-spacing:.08em;padding:.12em .35em}
+.tiles{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin:6px 0}
+.tiles span{min-width:1.7em;padding:4px 2px;border:3px solid var(--ink);border-radius:10px;font-size:1.5rem;text-align:center;background:#D8F5E7}
+.tiles span.miss{background:#FBE1DF;color:var(--bad)}
+.tiles.yours span{font-size:1.1rem;border-width:2px;background:#F1ECF5;color:var(--muted)}
+.words{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 14px}
+.words span{border:2px solid var(--ink);border-radius:8px;padding:2px 8px;font-size:.9rem}
+.hats b{align-self:center;min-width:4.5em;text-align:right}
 .veil{position:fixed;inset:0;background:rgba(59,42,74,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:10;overflow:auto}
 .veil .card{max-width:560px;width:100%;text-align:center;margin:auto}
 .pop{animation:pop .28s cubic-bezier(.2,1.5,.4,1) both}
@@ -119,7 +141,7 @@ svg.pet{overflow:visible;flex:none}
 @keyframes pop{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
 @keyframes blink{50%{opacity:0}}
 @keyframes spin{0%,100%{transform:scaleX(1)}50%{transform:scaleX(.15)}}
-@media (max-width:640px){.hero{flex-direction:column;text-align:center}.lead{margin-inline:auto}.tables{grid-template-columns:repeat(5,1fr)}.pick{grid-template-columns:1fr}}
+@media (max-width:640px){.hero{flex-direction:column;text-align:center}.lead{margin-inline:auto}.tables{grid-template-columns:repeat(5,1fr)}.pick{grid-template-columns:1fr}.duo{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 @media print{.noprint{display:none!important}body{background:#fff}.card{box-shadow:none}}
 </style>
@@ -138,6 +160,10 @@ const Engine = (() => {
   const FAST_MS = 5000;      // first-try answers this quick count as "already known"
   const SOLID_MS = 8000;     // a fact only counts as memorized if answered this quick
   const QUICK_MS = 3000;     // bonus seed
+  const LEVEL_MAX = 20;
+  const STARS = { step: 1, hatched: 3, grown: 6, badge: 10, quest: 5, boss: 15, best: 5 };
+  const QUEST_SEEDS = 15, QUEST_BONUS = 25, BOSS_SEEDS = 40, BOSS_HEARTS = 3;
+  const SPEED_LEVEL = 3, SPEED_MIN_POOL = 8, SPEED_SEED_CAP = 30;
   const TABLE_ORDER = [1, 10, 2, 5, 3, 4, 9, 6, 7, 8];
   const addTier = (a, b) => (a <= 2 || b === 10) ? 0 : a === b ? 1 : a + b <= 10 ? 2 : b - a === 1 ? 3 : 4;
 
@@ -154,11 +180,11 @@ const Engine = (() => {
     }
     return out;
   }
-  function makeSubject(name, blurb, goal, facts, kinds) {
+  function makeSubject(name, blurb, goal, facts, kinds, groups) {
     facts.sort((p, q) => p.rank - q.rank || p.size - q.size || p.a - q.a);
     const byId = {}, idx = {};
     facts.forEach((f, i) => { byId[f.id] = f; idx[f.id] = i; });
-    return { name, blurb, goal, facts, byId, idx, groups: groupsOf(facts, kinds) };
+    return { name, blurb, goal, facts, byId, idx, groups: groups || groupsOf(facts, kinds) };
   }
   const times = [], plusminus = [];
   for (let a = 1; a <= N; a++) for (let b = a; b <= N; b++) {
@@ -166,9 +192,24 @@ const Engine = (() => {
     plusminus.push({ id: a + '+' + b, kind: '+', a, b, size: a + b, rank: addTier(a, b) });
     plusminus.push({ id: a + '-' + b, kind: '-', a, b, size: a + b, rank: addTier(a, b) + 0.5 });
   }
+  // Word lists run from easier to harder. No sound-alike pairs (their/there), because she only hears the word.
+  const WORDS3 = ('said they were what when want does goes come give have many any friend people because again could should little ' +
+    'school about other every always around before another thought enough laugh family pretty special favorite different together between important question ' +
+    'surprise picture beautiful believe breakfast island minute answer strange busy early earth learn heart guess bought brought daughter calendar neighbor').split(' ');
+  const WORDS5 = ('climb forty height certain develop column ancient breathe although language familiar foreign excellent especially experience explanation dictionary disappear business character ' +
+    'community curiosity definite desperate frequently government knowledge lightning interrupt immediately independent environment necessary occasion opportunity particular persuade physical recognize recommend ' +
+    'restaurant separate sincerely temperature thorough vegetable committee conscience yacht embarrass exaggerate guarantee mischievous occurred parallel privilege pronunciation rhythm rhyme vacuum').split(' ');
+  function spelling(tag, name, blurb, goal, words) {
+    const facts = words.map((word, i) => ({ id: tag + ':' + word, kind: 'w', word, a: 0, b: 0, size: 0, rank: i }));
+    const groups = [];
+    for (let i = 0; i < words.length; i += N) groups.push({ key: tag + '-' + (i / N + 1), label: 'Set ' + (i / N + 1), ids: words.slice(i, i + N).map(w => tag + ':' + w) });
+    return makeSubject(name, blurb, goal, facts, [], groups);
+  }
   const SUBJECTS = {
     times: makeSubject('Times tables', '1 × 1 up to 10 × 10', 'all the times tables from 1 × 1 to 10 × 10', times, [['x', '×']]),
     plusminus: makeSubject('Adding and subtracting', 'Sums up to 20', 'every adding and subtracting fact up to 20', plusminus, [['+', '+'], ['-', '−']]),
+    spell3: spelling('w3', 'Spelling: starter words', '60 words, around grade 3', 'how to spell all 60 starter words', WORDS3),
+    spell5: spelling('w5', 'Spelling: tricky words', '60 words, around grade 5', 'how to spell all 60 tricky words', WORDS5),
   };
   function find(id) {
     for (const key in SUBJECTS) if (SUBJECTS[key].byId[id]) return { fact: SUBJECTS[key].byId[id], subject: key, idx: SUBJECTS[key].idx[id] };
@@ -177,10 +218,17 @@ const Engine = (() => {
 
   /* One fact can be asked two ways round (7 × 8 or 8 × 7; 15 − 7 or 15 − 8). */
   function pose(f, flip) {
+    if (f.kind === 'w') return { x: '', op: '', y: '', ans: f.word };
     if (f.kind === 'x') return { x: flip ? f.b : f.a, op: '×', y: flip ? f.a : f.b, ans: f.a * f.b };
     if (f.kind === '+') return { x: flip ? f.b : f.a, op: '+', y: flip ? f.a : f.b, ans: f.a + f.b };
     return { x: f.a + f.b, op: '−', y: flip ? f.b : f.a, ans: flip ? f.a : f.b };
   }
+
+  const same = (given, ans) => typeof ans === 'number' ? Number(given) === ans : String(given).trim().toLowerCase() === ans;
+  // Typing a word takes longer than typing a number, so spelling gets more time per letter.
+  const limits = q => q.kind === 'w'
+    ? { fast: 4000 + 800 * q.ans.length, solid: 7000 + 1000 * q.ans.length, quick: 2500 + 450 * q.ans.length }
+    : { fast: FAST_MS, solid: SOLID_MS, quick: QUICK_MS };
 
   function dayStart(now, plus = 0) { const d = new Date(now); return new Date(d.getFullYear(), d.getMonth(), d.getDate() + plus).getTime(); }
   function dateKey(now) { const d = new Date(now), p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); }
@@ -189,7 +237,7 @@ const Engine = (() => {
   function newSave(now, subject, name) {
     const facts = {};
     for (const f of SUBJECTS[subject].facts) facts[f.id] = { s: 0, due: 0, seen: 0, r: 0, w: 0, last: 0 };
-    return { id: 'p' + now + Math.floor(Math.random() * 1e6), name: name || 'Keeper', subject, created: now, facts, seeds: 0, hats: [], worn: {}, days: {}, badges: [], done: 0, sound: true, mic: false };
+    return { id: 'p' + now + Math.floor(Math.random() * 1e6), name: name || 'Keeper', subject, created: now, facts, seeds: 0, stars: 0, seenLevel: 1, owned: [], worn: {}, bed: '', quests: null, bosses: {}, speedBest: 0, speedDay: '', days: {}, badges: [], done: 0, sound: true, mic: false };
   }
   function repair(p, now) {
     if (!p || typeof p !== 'object' || !SUBJECTS[p.subject] || typeof p.facts !== 'object') return null;
@@ -199,9 +247,22 @@ const Engine = (() => {
       const old = p.facts[id];
       if (old && typeof old === 'object') out.facts[id] = { s: Math.max(0, Math.min(4, old.s | 0)), due: +old.due || 0, seen: old.seen ? 1 : 0, r: old.r | 0, w: old.w | 0, last: +old.last || 0 };
     }
-    for (const k of ['hats', 'badges']) if (!Array.isArray(out[k])) out[k] = [];
-    for (const k of ['worn', 'days']) if (!out[k] || typeof out[k] !== 'object') out[k] = {};
+    for (const k of ['owned', 'badges']) if (!Array.isArray(out[k])) out[k] = [];
+    for (const k of ['worn', 'days', 'bosses']) if (!out[k] || typeof out[k] !== 'object') out[k] = {};
+    // saves from the first version: hats were the only thing to own, and a pet wore one hat
+    if (Array.isArray(p.hats)) for (const h of p.hats) if (!out.owned.includes(h)) out.owned.push(h);
+    delete out.hats;
+    for (const id in out.worn) if (typeof out.worn[id] === 'string') out.worn[id] = { hat: out.worn[id] };
     out.seeds = Math.max(0, out.seeds | 0);
+    if (typeof p.stars !== 'number') {
+      out.stars = out.badges.length * STARS.badge;
+      for (const id in out.facts) if (out.facts[id].s >= 3) out.stars += STARS.hatched + (out.facts[id].s === 4 ? STARS.grown : 0);
+    }
+    out.stars = Math.max(0, out.stars | 0);
+    out.seenLevel = Math.max(1, Math.min(LEVEL_MAX, (out.seenLevel | 0) || 1));
+    out.speedBest = Math.max(0, out.speedBest | 0);
+    if (typeof out.bed !== 'string') out.bed = '';
+    if (out.quests && (typeof out.quests !== 'object' || !Array.isArray(out.quests.list))) out.quests = null;
     out.name = String(out.name).slice(0, 16);
     return out;
   }
@@ -243,8 +304,8 @@ const Engine = (() => {
   function answer(save, round, q, given, ms, now) {
     const S = SUBJECTS[save.subject], f = save.facts[q.id], from = f.s, key = dateKey(now);
     const day = save.days[key] || (save.days[key] = { q: 0, ok: 0, rounds: 0, hatched: 0, grown: 0 });
-    const correct = Number(given) === q.ans;
-    const res = { correct, from, to: from, event: '', seeds: 0, badges: [], allDone: false, quick: false };
+    const correct = same(given, q.ans), lim = limits(q);
+    const res = { correct, from, to: from, event: '', seeds: 0, stars: 0, badges: [], quests: [], allDone: false, quick: false };
     day.q++;
     f.last = now;
     if (!correct) {
@@ -261,15 +322,16 @@ const Engine = (() => {
       }
       f.seen = 1;
       res.to = f.s;
+      ensureQuests(save, now).run = 0;
       return res;
     }
     f.r++; day.ok++; round.ok++;
-    res.quick = ms <= QUICK_MS;
+    res.quick = ms <= lim.quick;
     res.seeds = 2 + (res.quick ? 1 : 0);
     if (q.mode === 'practice') { res.event = 'practice'; res.seeds = 1; }
     else if (q.mode === 'fix') { f.due = dayStart(now, 1); res.event = 'fixed'; }
     else if (from === 0) {
-      if (!f.seen && ms <= FAST_MS) { f.s = 3; f.due = dayStart(now, 1); res.event = 'placed'; }
+      if (!f.seen && ms <= lim.fast) { f.s = 3; f.due = dayStart(now, 1); res.event = 'placed'; }
       else {
         f.s = 1; f.due = now; res.event = 'warmed';
         if (!round.learners.includes(q.id)) round.learners.push(q.id);
@@ -279,7 +341,7 @@ const Engine = (() => {
     else if (from === 1) { f.s = 2; f.due = dayStart(now, 1); res.event = 'cracked'; }
     else if (from === 2) { f.s = 3; f.due = dayStart(now, 2); res.event = 'hatched'; }
     else if (from === 3) {
-      if (ms <= SOLID_MS) { f.s = 4; f.due = dayStart(now, 7); res.event = 'grown'; }
+      if (ms <= lim.solid) { f.s = 4; f.due = dayStart(now, 7); res.event = 'grown'; }
       else { f.due = dayStart(now, 1); res.event = 'almost'; }
     }
     else { f.due = dayStart(now, 21); res.event = 'kept'; }
@@ -295,8 +357,19 @@ const Engine = (() => {
       }
       if (S.facts.every(x => save.facts[x.id].s === 4)) { if (!save.done) save.done = now; res.allDone = true; }
     }
-    save.seeds += res.seeds;
-    round.seeds += res.seeds;
+    const stepped = ['warmed', 'cracked', 'placed', 'hatched'].includes(res.event);
+    const hatchedNow = res.event === 'placed' || res.event === 'hatched';
+    res.stars = (hatchedNow ? STARS.hatched : res.event === 'grown' ? STARS.grown : stepped ? STARS.step : 0) + res.badges.length * STARS.badge;
+    save.seeds += res.seeds; save.stars += res.stars;
+    round.seeds += res.seeds; round.stars = (round.stars || 0) + res.stars;
+    const qs = ensureQuests(save, now);
+    qs.run++;
+    const hit = (type, n, max) => res.quests.push(...questEvent(save, type, n, now, max));
+    hit('right', 1); hit('streak', qs.run, true);
+    if (res.quick) hit('quick', 1);
+    if (stepped) hit('warm', 1);
+    if (hatchedNow) hit('hatch', 1);
+    if (res.event === 'grown') hit('grow', 1);
     return res;
   }
 
@@ -304,6 +377,7 @@ const Engine = (() => {
     const key = dateKey(now);
     const day = save.days[key] || (save.days[key] = { q: 0, ok: 0, rounds: 0, hatched: 0, grown: 0 });
     day.rounds++;
+    return questEvent(save, 'rounds', 1, now);
   }
 
   function stats(save, now) {
@@ -321,6 +395,95 @@ const Engine = (() => {
       groups: S.groups.map(g => ({ key: g.key, label: g.label, of: g.ids.length, n: g.ids.filter(id => save.facts[id].s === 4).length })),
       tricky: S.facts.filter(f => save.facts[f.id].w > 0).sort((a, b) => save.facts[b.id].w - save.facts[a.id].w).slice(0, 6).map(f => f.id),
     };
+  }
+
+  /* Keeper levels. Stars only come from eggs moving forward, quests and bosses. */
+  const starsFor = n => 3 * n * (n - 1);
+  function levelInfo(stars) {
+    let level = 1;
+    while (level < LEVEL_MAX && stars >= starsFor(level + 1)) level++;
+    const max = level === LEVEL_MAX;
+    return { level, into: stars - starsFor(level), need: max ? 0 : starsFor(level + 1) - starsFor(level), max };
+  }
+
+  /* Three small goals a day, picked so that each one is possible today. */
+  function ensureQuests(save, now) {
+    const day = dateKey(now);
+    if (save.quests && save.quests.day === day) return save.quests;
+    const S = SUBJECTS[save.subject], F = save.facts, endOfDay = dayStart(now, 1);
+    let h = 17;
+    for (const ch of day + save.id) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0;
+    const rnd = () => ((h = (Math.imul(h, 1664525) + 1013904223) | 0) >>> 0) / 4294967296;
+    const pick = a => a[Math.floor(rnd() * a.length)];
+    const dueToday = stage => S.facts.filter(f => F[f.id].s === stage && F[f.id].due < endOfDay).length;
+    const prog = [];
+    if (S.facts.some(f => F[f.id].s <= 2)) prog.push(['warm', 3]);
+    if (dueToday(2) >= 1) prog.push(['hatch', Math.min(2, dueToday(2))]);
+    if (dueToday(3) >= 1) prog.push(['grow', 1]);
+    if (bossList(save, now).some(b => b.canTry)) prog.push(['boss', 1]);
+    if (speedOpen(save)) prog.push(['speed', 10]);
+    if (!prog.length) prog.push(['right', 25]);
+    const list = [pick([['rounds', 1], ['rounds', 2], ['right', 15]]), pick([['streak', 6], ['streak', 8], ['quick', 5], ['quick', 8]]), pick(prog)]
+      .map(([type, goal]) => ({ type, goal, n: 0, done: false }));
+    save.quests = { day, list, run: 0, bonus: false };
+    return save.quests;
+  }
+  function questEvent(save, type, n, now, max) {
+    const qs = ensureQuests(save, now), out = [];
+    for (const q of qs.list) if (q.type === type && !q.done) {
+      q.n = Math.min(q.goal, max ? Math.max(q.n, n) : q.n + n);
+      if (q.n >= q.goal) { q.done = true; save.seeds += QUEST_SEEDS; save.stars += STARS.quest; out.push({ type: q.type, goal: q.goal }); }
+    }
+    if (out.length && !qs.bonus && qs.list.every(q => q.done)) { qs.bonus = true; save.seeds += QUEST_BONUS; out.push({ type: 'all', goal: qs.list.length }); }
+    return out;
+  }
+
+  /* A missed fact in a challenge comes back in the next normal round. Challenges never move an egg forward. */
+  function miss(save, id, now) { const f = save.facts[id]; f.w++; f.last = now; if (f.s >= 1 && f.due > now) f.due = now; }
+
+  /* Boss eggs: one for each set of ten facts, once every egg in the set has hatched. One try a day. */
+  function bossList(save, now) {
+    const S = SUBJECTS[save.subject], today = dateKey(now);
+    return S.groups.filter(g => !(save.bosses[g.key] && save.bosses[g.key].won) && g.ids.every(id => save.facts[id].s >= 3))
+      .map(g => ({ key: g.key, label: g.label, canTry: !(save.bosses[g.key] && save.bosses[g.key].day === today) }));
+  }
+  function startBoss(save, key, now, rnd = Math.random) {
+    const S = SUBJECTS[save.subject], g = S.groups.find(x => x.key === key), ids = g.ids.slice();
+    for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; }
+    const old = save.bosses[key] || {};
+    save.bosses[key] = { won: old.won || 0, day: dateKey(now), tries: (old.tries | 0) + 1 };
+    return { key, label: g.label, i: 0, hearts: BOSS_HEARTS, right: 0, qs: ids.map(id => Object.assign({ id, kind: S.byId[id].kind }, pose(S.byId[id], rnd() < 0.5))) };
+  }
+  function bossAnswer(save, boss, given, now) {
+    const q = boss.qs[boss.i], correct = same(given, q.ans);
+    const res = { correct, ans: q.ans, over: '', seeds: 0, stars: 0, quests: [] };
+    if (correct) { boss.right++; res.seeds = 1; } else { boss.hearts--; miss(save, q.id, now); }
+    boss.i++;
+    if (boss.hearts <= 0) res.over = 'lose';
+    else if (boss.i >= boss.qs.length) {
+      res.over = 'win'; res.seeds += BOSS_SEEDS; res.stars = STARS.boss;
+      save.bosses[boss.key].won = now;
+    }
+    save.seeds += res.seeds; save.stars += res.stars;
+    if (res.over === 'win') res.quests = questEvent(save, 'boss', 1, now);
+    return res;
+  }
+
+  /* Speed nest: a 60-second dash on facts that have already hatched. */
+  const speedPool = save => SUBJECTS[save.subject].facts.filter(f => save.facts[f.id].s >= 3).map(f => f.id);
+  const speedOpen = save => levelInfo(save.stars).level >= SPEED_LEVEL && speedPool(save).length >= SPEED_MIN_POOL;
+  function speedQuestion(save, lastId, rnd = Math.random) {
+    const S = SUBJECTS[save.subject], pool = speedPool(save).filter(id => id !== lastId);
+    const id = pool[Math.floor(rnd() * pool.length)];
+    return Object.assign({ id, kind: S.byId[id].kind }, pose(S.byId[id], rnd() < 0.5));
+  }
+  function speedFinish(save, score, now) {
+    const day = dateKey(now), res = { score, best: false, seeds: 0, stars: 0, quests: [] };
+    if (save.speedDay !== day) { res.seeds = Math.min(score, SPEED_SEED_CAP); save.speedDay = day; }
+    if (score > save.speedBest) { res.best = true; if (score >= 5) res.stars = STARS.best; save.speedBest = score; }
+    save.seeds += res.seeds; save.stars += res.stars;
+    res.quests = questEvent(save, 'speed', score, now, true);
+    return res;
   }
 
   /* Turn what the microphone heard into a number. Takes the last number in the sentence. */
@@ -343,7 +506,8 @@ const Engine = (() => {
   }
 
   return { SUBJECTS, NAMES, find, pose, dayStart, dateKey, newSave, repair, startRound, nextQuestion, answer, finishRound, stats, parseSpoken,
-    ROUND_LEN, MAX_LEARNERS, FAST_MS, SOLID_MS };
+    ROUND_LEN, MAX_LEARNERS, FAST_MS, SOLID_MS, QUICK_MS, LEVEL_MAX, SPEED_LEVEL, BOSS_HEARTS, STARS,
+    same, limits, starsFor, levelInfo, ensureQuests, questEvent, miss, bossList, startBoss, bossAnswer, speedPool, speedOpen, speedQuestion, speedFinish };
 })();
 </script>
 
@@ -363,18 +527,59 @@ const EPITHETS = ['the Brave', 'the Sneezy', 'Junior', 'the Third', 'of the Sock
 const HOBBIES = ['yodelling at soup', 'collecting left socks', 'racing snails (and losing)', 'knitting spaghetti', 'staring at toast', 'burping the alphabet', 'sneezing glitter', 'hiding in cereal boxes', 'teaching worms to dance', 'wearing pancakes as hats', 'arguing with the moon', 'juggling jelly', 'napping in the sink', 'singing to potatoes', 'tickling clouds', 'painting its toenails with ketchup', 'moonwalking up the stairs', 'whispering secrets to spoons', 'riding the vacuum cleaner', 'counting its own toes (wrongly)', 'practicing evil laughs', 'smelling old books', 'wrestling pillows', 'inventing new sneezes', 'doing ballet in rain boots'];
 const FEARS = ['bubbles', 'the number 7 (because 7 ate 9)', 'mittens', 'cheese that is too quiet', 'its own tail', 'Tuesdays', 'broccoli with opinions', 'wet socks', 'ducks wearing hats', 'tiny umbrellas', 'bath time', 'very polite spiders'];
 const ASK = [
-  ['A brand new egg! Brr, it is chilly.', 'This egg is cold. Warm it up with the right answer!', 'Mystery egg! Only math can open it.'],
+  ['A brand new egg! Brr, it is chilly.', 'This egg is cold. Warm it up with the right answer!', 'Mystery egg! Only the right answer can open it.'],
   ['It is wobbling! Keep it warm.', 'This egg is getting toasty.', 'Warm egg coming back for more.'],
   ['It is cracking! Something is peeking at you.', 'Is that two eyes? Or three? One more push!', 'Crack, crack... nearly there!'],
 ];
 const EGG_OK = ['Ooh, toasty!', 'The egg did a tiny dance.', 'Something inside just burped.', 'Wobble wobble!', 'The egg is humming a little tune.', 'Was that a giggle? From an egg?', 'Warm and cozy!', 'The egg approves.', 'A tiny thumbs-up poked out. Then went back in.', 'The egg whispered: nice one.'];
 const PET_OK = ['It did a happy wiggle!', 'High five! (It has no hands. High forehead?)', 'It burped a rainbow.', 'It is doing its victory dance. It is a terrible dance.', 'It gave you a slightly sticky hug.', 'It is SO proud of you. It told a spoon.', 'It sneezed confetti.', 'Nom nom, brain food!', 'It saluted. With its foot.'];
 const OOPS = ['Oops! The egg rolled over.', 'Not quite. The egg is not mad, just egg-stra patient.', 'So close! Have a peek at the answer.', 'The egg shrugged. (How?)', 'Nearly! Look, then try again in a moment.', 'Whoops-a-doodle. Here is how it goes.'];
-const HATS = [
-  { id: 'party', name: 'Party hat', price: 30 }, { id: 'cone', name: 'Traffic cone', price: 60 }, { id: 'chef', name: 'Chef hat', price: 100 },
-  { id: 'cowboy', name: 'Cowboy hat', price: 150 }, { id: 'tophat', name: 'Top hat', price: 200 }, { id: 'propeller', name: 'Propeller cap', price: 260 },
-  { id: 'fish', name: 'A fish', price: 330 }, { id: 'crown', name: 'Crown', price: 450 },
+const ITEMS = [
+  { id: 'party', kind: 'hat', name: 'Party hat', price: 30, lvl: 1 }, { id: 'bow', kind: 'hat', name: 'Big bow', price: 40, lvl: 1 },
+  { id: 'cone', kind: 'hat', name: 'Traffic cone', price: 60, lvl: 1 }, { id: 'beanie', kind: 'hat', name: 'Pom-pom beanie', price: 90, lvl: 2 },
+  { id: 'chef', kind: 'hat', name: 'Chef hat', price: 100, lvl: 2 }, { id: 'cowboy', kind: 'hat', name: 'Cowboy hat', price: 150, lvl: 3 },
+  { id: 'tophat', kind: 'hat', name: 'Top hat', price: 200, lvl: 4 }, { id: 'propeller', kind: 'hat', name: 'Propeller cap', price: 260, lvl: 5 },
+  { id: 'pirate', kind: 'hat', name: 'Pirate hat', price: 220, lvl: 6 }, { id: 'fish', kind: 'hat', name: 'A fish', price: 330, lvl: 7 },
+  { id: 'unicorn', kind: 'hat', name: 'Unicorn horn', price: 380, lvl: 9 }, { id: 'crown', kind: 'hat', name: 'Crown', price: 450, lvl: 10 },
+  { id: 'nose', kind: 'face', name: 'Clown nose', price: 25, lvl: 1 }, { id: 'specs', kind: 'face', name: 'Round glasses', price: 50, lvl: 2 },
+  { id: 'moustache', kind: 'face', name: 'Mustache', price: 70, lvl: 3 }, { id: 'shades', kind: 'face', name: 'Cool shades', price: 120, lvl: 4 },
+  { id: 'patch', kind: 'face', name: 'Eye patch', price: 140, lvl: 6 }, { id: 'monocle', kind: 'face', name: 'Monocle', price: 200, lvl: 8 },
+  { id: 'bowtie', kind: 'outfit', name: 'Bow tie', price: 35, lvl: 1 }, { id: 'scarf', kind: 'outfit', name: 'Scarf', price: 60, lvl: 2 },
+  { id: 'necktie', kind: 'outfit', name: 'Necktie', price: 80, lvl: 3 }, { id: 'tutu', kind: 'outfit', name: 'Tutu', price: 130, lvl: 4 },
+  { id: 'medal', kind: 'outfit', name: 'Gold medal', price: 160, lvl: 5 }, { id: 'hula', kind: 'outfit', name: 'Grass skirt', price: 190, lvl: 7 },
+  { id: 'cape', kind: 'outfit', name: 'Hero cape', price: 280, lvl: 9 },
+  { id: 'tote', kind: 'bag', name: 'Tote bag', price: 30, lvl: 1 }, { id: 'purse', kind: 'bag', name: 'Purse', price: 70, lvl: 2 },
+  { id: 'lunchbox', kind: 'bag', name: 'Lunchbox', price: 90, lvl: 3 }, { id: 'backpack', kind: 'bag', name: 'Backpack', price: 150, lvl: 5 },
+  { id: 'fanny', kind: 'bag', name: 'Fanny pack', price: 170, lvl: 6 }, { id: 'briefcase', kind: 'bag', name: 'Briefcase', price: 240, lvl: 8 },
+  { id: 'straw', kind: 'bed', name: 'Straw nest', price: 20, lvl: 1 }, { id: 'pillow', kind: 'bed', name: 'Comfy pillow', price: 60, lvl: 2 },
+  { id: 'shoebox', kind: 'bed', name: 'Shoebox', price: 80, lvl: 3 }, { id: 'teacup', kind: 'bed', name: 'Teacup', price: 140, lvl: 4 },
+  { id: 'cloud', kind: 'bed', name: 'Cloud', price: 200, lvl: 6 }, { id: 'tub', kind: 'bed', name: 'Bubble bath', price: 260, lvl: 7 },
+  { id: 'pizza', kind: 'bed', name: 'Pizza box', price: 320, lvl: 9 }, { id: 'rocket', kind: 'bed', name: 'Rocket', price: 500, lvl: 12 },
 ];
+const SHELVES = [['hat', '🎩 Hats'], ['face', '🥸 Faces'], ['outfit', '🎀 Outfits'], ['bag', '👜 Bags'], ['bed', '🛏️ Egg beds']];
+const SLOTS = [['hat', 'Hat'], ['face', 'Face'], ['outfit', 'Outfit'], ['bag', 'Bag']];
+const RANKS = ['Egg Sitter', 'Nest Fluffer', 'Shell Polisher', 'Yolk Whisperer', 'Chief Wobbler', 'Crack Detective', 'Hatch Helper', 'Pet Wrangler', 'Nest Boss', 'Egg Captain',
+  'Feather Duster First Class', 'Wobble Master', 'Hatch Hero', 'Grand Nester', 'Egg Professor', 'Royal Egg Tickler', 'Hatch Champion', 'Legend of the Nest', 'Almost an Egg Wizard', 'Supreme Egg Wizard'];
+const BOSS_TAUNT = ['You will never crack me!', 'I am the toughest egg in the nest.', 'Is that all you have got?', 'My shell is made of homework.', 'I eat numbers for breakfast.', 'Nobody cracks the boss egg. Nobody!'];
+const BOSS_OUCH = ['Ow! A crack!', 'Hey! That tickles!', 'Stop being right!', 'My beautiful shell!', 'Lucky guess. (It was not a guess.)', 'Eek! I felt that one.'];
+const SPELL_TIPS = {
+  because: 'Big Elephants Can Always Understand Small Elephants.', friend: 'A friEND stays to the END.', said: 'Silly Ants In Dresses: s-a-i-d.',
+  people: 'People Eat Orange Peels Like Elephants.', believe: 'Never beLIEve a LIE.', island: 'An island IS LAND.', together: 'It is three small words: to, get, her.',
+  beautiful: 'Big Elephants Are Ugly: b-e-a-u, then tiful.', laugh: 'Laugh And U Get Happy.', could: 'O U Lucky Duck: c-o-u-l-d.', should: 'O U Lucky Duck: sh-o-u-l-d.',
+  answer: 'There is a silent w hiding in ansWer.', breakfast: 'You BREAK your FAST in the morning.', business: 'Take the BUS: bus-i-ness.', calendar: 'It ends in dAR, like a cAR.',
+  necessary: 'A shirt has one Collar and two Sleeves: one c, two s.', rhythm: 'Rhythm Helps Your Two Hips Move.', separate: 'There is A RAT in sepARATe.',
+  embarrass: 'Really Red And Smiling Shyly: two r, two s.', definite: 'It has FINITE inside: de-finite.', environment: 'There is IRON in envIRONment.', vegetable: 'Can you GET A table? ve-GET-A-ble.',
+  temperature: 'Say it in pieces: tem-per-a-ture.', government: 'It GOVERNs: govern-ment.', knowledge: 'You KNOW the LEDGE: know-ledge.', forty: 'Forty forgot its u.',
+  restaurant: 'Say it in pieces: rest-au-rant.', guarantee: 'The GUARd gives a guarantee.', parallel: 'The two l lines in the middle are parallel.', occurred: 'Two c and two r: it occurred twice.',
+  committee: 'Double m, double t, double e.', mischievous: 'Say it in pieces: mis-chie-vous.', neighbor: 'A neighbor says HEIGH: n-eigh-bor.', height: 'It starts with HE: he-ight.',
+  thought: 'O U Great Hairy Thing: th-ough-t.', enough: 'O U Great Hero: en-ough.', bought: 'O U Great Hairy Thing: b-ough-t.', brought: 'BRing becomes BRought. Keep the r.',
+};
+const questText = q => ({
+  rounds: `Finish ${plural(q.goal, 'round')}`, right: `Get ${q.goal} answers right`, streak: `Get ${q.goal} right in a row`, quick: `Get ${q.goal} speedy answers`,
+  warm: `Warm up ${plural(q.goal, 'egg')}`, hatch: `Hatch ${plural(q.goal, 'egg')}`, grow: `Grow up ${plural(q.goal, 'pet')}`, boss: 'Beat a boss egg',
+  speed: `Score ${q.goal} in the speed nest`, all: 'All three quests done! Bonus +25 🌱',
+}[q.type]);
+const questLine = qs => (qs || []).map(q => `<p class="trick" style="text-align:center">✅ ${q.type === 'all' ? questText(q) : 'Quest done: ' + questText(q) + '! +15 🌱 +5 ⭐'}</p>`).join('');
 
 /* ---------- saving ---------- */
 function loadRoot() {
@@ -394,7 +599,7 @@ function persist() {
 }
 let root = loadRoot();
 let save = root.players[root.cur] || null;
-const ui = { screen: save ? (root.players.length > 1 ? 'who' : 'home') : 'welcome', round: null, q: null, typed: '', phase: 'ask', overlay: null, res: null, t0: 0, lock: 0, bubble: '', timer: 0, detail: null, sum: null, arm: '', note: '' };
+const ui = { screen: save ? (root.players.length > 1 ? 'who' : 'home') : 'welcome', round: null, q: null, typed: '', phase: 'ask', overlay: null, res: null, t0: 0, lock: 0, bubble: '', timer: 0, detail: null, sum: null, arm: '', note: '', shopTab: 'hat', boss: null, speed: null, tick: 0 };
 
 /* ---------- drawing pets ---------- */
 const COLORS = ['#FF8A5B', '#2BB5A0', '#FFC93C', '#8E7CFF', '#5BC0EB', '#F2779A', '#7BC950', '#FF9F1C', '#C77DFF', '#49B6FF'];
@@ -436,10 +641,59 @@ function hatArt(h) {
     case 'propeller': return `<path d="M-14 1a14 13 0 0 1 28 0z" fill="#F2779A" ${st}/><path d="M-14 1a14 13 0 0 1 14-13v13z" fill="#5BC0EB" ${st}/><path d="M0-12v-8" ${st}/><g class="spin"><ellipse cx="-9" cy="-21" rx="9" ry="3" fill="#FFC93C" ${st}/><ellipse cx="9" cy="-21" rx="9" ry="3" fill="#FFC93C" ${st}/></g>`;
     case 'fish': return `<path d="M13-9l11-8v16z" fill="#5BC0EB" ${st}/><ellipse cx="0" cy="-9" rx="16" ry="8" fill="#5BC0EB" ${st}/><circle cx="-8" cy="-11" r="2" fill="${INK}"/><path d="M-2-13q5 4 0 8" fill="none" ${st}/>`;
     case 'crown': return `<path d="M-16 1V-18l8 9 8-13 8 13 8-9V1z" fill="#FFC93C" ${st}/><circle cx="0" cy="-6" r="3" fill="#F2779A"/><circle cx="-9" cy="-5" r="2" fill="#5BC0EB"/><circle cx="9" cy="-5" r="2" fill="#5BC0EB"/>`;
+    case 'bow': return `<path d="M0-4l-14-9v16zM0-4l14-9v16z" fill="#F2779A" ${st}/><circle cx="0" cy="-4" r="4" fill="#D94F7A" ${st}/>`;
+    case 'beanie': return `<circle cx="0" cy="-17" r="5" fill="#F4F1FA" ${st}/><path d="M-15 2a15 17 0 0 1 30 0z" fill="#3F7FD9" ${st}/><rect x="-17" y="-3" width="34" height="7" rx="3.5" fill="#F4F1FA" ${st}/>`;
+    case 'pirate': return `<path d="M-23 3q23-36 46 0-23-9-46 0z" fill="#2B2140" ${st}/><circle cx="0" cy="-10" r="4" fill="#fff"/><path d="M-5-3l10-4M-5-7l10 4" stroke="#fff" stroke-width="2" stroke-linecap="round"/>`;
+    case 'unicorn': return `<path d="M-6 2L0-34 6 2z" fill="#FFE48A" ${st}/><path d="M-4-8l8-3M-3-17l6-2.5M-2-25l4-1.5" stroke="#F2779A" stroke-width="2.5" stroke-linecap="round"/>`;
     default: return '';
   }
 }
-function petBody(s, full) {
+function dress(w, g) {
+  const st = stroke(2.5), { ey, my, sd, hw, ex, er } = g, ny = Math.min(my + 17, 97), hx = 63 + sd, hy = 80, bw = Math.round(sd * 0.75);
+  const x0 = ex[0], x1 = ex[ex.length - 1], arms = `<path d="M${x0 - er - 3} ${ey}l-7-3M${x1 + er + 3} ${ey}l7-3" fill="none" ${st}/>`;
+  let back = '', front = '';
+  switch (w.outfit) {
+    case 'bowtie': front += `<path d="M60 ${ny}l-13-7v14zM60 ${ny}l13-7v14z" fill="#E53935" ${st}/><circle cx="60" cy="${ny}" r="3.5" fill="#B71C1C" ${st}/>`; break;
+    case 'necktie': front += `<path d="M56 ${ny - 5}h8l-2 5 4 13-6 6-6-6 4-13z" fill="#3F7FD9" ${st}/>`; break;
+    case 'scarf': front += `<path d="M${60 + bw * 0.3} ${ny + 3}l4 17 9-2-5-16z" fill="#F2779A" ${st}/><path d="M${60 - bw} ${ny - 5}q${bw} 9 ${bw * 2} 0v8q${-bw} 9 ${-bw * 2} 0z" fill="#F2779A" ${st}/>`; break;
+    case 'tutu': { const a = 60 - bw - 6, dx = (bw * 2 + 12) / 6; front += `<path d="M${a} 93${`q${dx / 2} 13 ${dx} 0`.repeat(6)}L${60 + bw + 2} 87Q60 83 ${60 - bw - 2} 87z" fill="#FFB3D1" ${st}/>`; break; }
+    case 'medal': front += `<path d="M51 ${ny - 8}l9 13 9-13" fill="none" stroke="#3F7FD9" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/><circle cx="60" cy="${ny + 8}" r="6.5" fill="#FFC93C" ${st}/><circle cx="60" cy="${ny + 8}" r="2.5" fill="#E0A100"/>`; break;
+    case 'hula': { let d = ''; for (let x = 60 - bw; x <= 60 + bw; x += 5) d += `M${x} 91l${(x - 60) / 8} 15`; front += `<path d="${d}" fill="none" stroke="#4CAF50" stroke-width="3.5" stroke-linecap="round"/><path d="M${58 - bw} 90Q60 95 ${62 + bw} 90" fill="none" stroke="#2E7D32" stroke-width="4" stroke-linecap="round"/>`; break; }
+    case 'cape': back += `<path d="M${66 - sd} 58L${48 - sd} 114Q60 104 ${72 + sd} 114L${54 + sd} 58z" fill="#D7263D" ${st}/>`; front += `<circle cx="60" cy="${ny - 2}" r="4" fill="#FFC93C" ${st}/>`; break;
+  }
+  switch (w.bag) {
+    case 'tote': front += `<path d="M${hx - 6} ${hy + 7}q6-11 12 0" fill="none" ${st}/><path d="M${hx - 9} ${hy + 7}h18l-2 16h-14z" fill="#FFC93C" ${st}/><circle cx="${hx}" cy="${hy + 15}" r="3" fill="#F2779A"/>`; break;
+    case 'purse': front += `<path d="M${hx - 5} ${hy + 9}q5-10 10 0" fill="none" ${st}/><rect x="${hx - 9}" y="${hy + 9}" width="18" height="13" rx="5" fill="#C77DFF" ${st}/><circle cx="${hx}" cy="${hy + 12}" r="2" fill="#FFC93C"/>`; break;
+    case 'lunchbox': front += `<path d="M${hx - 4} ${hy + 7}v-3h8v3" fill="none" ${st}/><rect x="${hx - 10}" y="${hy + 7}" width="20" height="14" rx="3" fill="#5BC0EB" ${st}/><path d="M${hx - 10} ${hy + 13}h20" fill="none" ${st}/>`; break;
+    case 'briefcase': front += `<path d="M${hx - 4} ${hy + 7}v-3h8v3" fill="none" ${st}/><rect x="${hx - 11}" y="${hy + 7}" width="22" height="15" rx="2" fill="#8D5A2B" ${st}/><rect x="${hx - 2}" y="${hy + 12}" width="4" height="4" fill="#FFC93C"/>`; break;
+    case 'backpack': back += `<rect x="${53 - sd}" y="56" width="${sd * 2 + 14}" height="42" rx="12" fill="#FF8A5B" ${st}/>`; front += `<path d="M${68 - sd} 64q5 14 0 28M${52 + sd} 64q-5 14 0 28" fill="none" stroke="#C7532B" stroke-width="4" stroke-linecap="round"/>`; break;
+    case 'fanny': front += `<path d="M${60 - bw} 92Q60 99 ${60 + bw} 92" fill="none" ${st}/><rect x="49" y="89" width="22" height="12" rx="6" fill="#2BB5A0" ${st}/><path d="M53 93h14" fill="none" stroke="${INK}" stroke-width="1.5"/>`; break;
+  }
+  switch (w.face) {
+    case 'nose': { const y = ey + Math.min(er, 8) + 3; front += `<circle cx="60" cy="${y}" r="5.5" fill="#E53935" ${st}/><circle cx="58.5" cy="${y - 1.5}" r="1.5" fill="#fff" opacity=".7"/>`; break; }
+    case 'specs': front += ex.map(x => `<circle cx="${x}" cy="${ey}" r="${er + 3}" fill="rgba(255,255,255,.2)" ${st}/>`).join('') + ex.slice(1).map((x, i) => `<path d="M${ex[i] + er + 3} ${ey}H${x - er - 3}" fill="none" ${st}/>`).join('') + arms; break;
+    case 'shades': front += `<rect x="${x0 - er - 3}" y="${ey - er * 0.75}" width="${x1 - x0 + er * 2 + 6}" height="${er * 1.5}" rx="5" fill="#2B2140" ${st}/><path d="M${x0 - er + 2} ${ey - er * 0.25}l6-3" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".6"/>` + arms; break;
+    case 'moustache': front += `<path d="M60 ${my - 1}c-4-5-12-5-16 0-3 3-6 2-8-1 1 7 8 10 14 7 5-2 8-4 10-6 2 2 5 4 10 6 6 3 13 0 14-7-2 3-5 4-8 1-4-5-12-5-16 0z" fill="#5A3A22" ${stroke(2)}/>`; break;
+    case 'patch': front += `<path d="M${60 - hw} ${ey - 9}L${60 + hw} ${ey - 5}" fill="none" ${st}/><circle cx="${x0}" cy="${ey}" r="${er + 2}" fill="#2B2140" ${st}/>`; break;
+    case 'monocle': front += `<circle cx="${x1}" cy="${ey}" r="${er + 3}" fill="rgba(255,255,255,.2)" stroke="#C99700" stroke-width="3"/><path d="M${x1 + er + 2} ${ey + 3}q7 14-3 26" fill="none" stroke="#C99700" stroke-width="1.8" stroke-dasharray="2 2"/>`; break;
+  }
+  return { back, front };
+}
+function bedArt(id) {
+  const st = stroke(2.5);
+  switch (id) {
+    case 'straw': return { back: `<ellipse cx="60" cy="108" rx="46" ry="12" fill="#C99A4B" ${st}/>`, front: `<path d="M14 108q46 26 92 0-4 20-46 20T14 108z" fill="#D9AE5F" ${st}/><path d="M26 119l8-5M44 124l6-7M72 124l-4-7M92 118l-8-5" fill="none" stroke="#8A6424" stroke-width="2" stroke-linecap="round"/>` };
+    case 'pillow': return { back: `<rect x="12" y="102" width="96" height="24" rx="12" fill="#B79CFF" ${st}/><path d="M22 119q38 8 76 0" fill="none" stroke="rgba(0,0,0,.18)" stroke-width="3" stroke-linecap="round"/>`, front: '' };
+    case 'shoebox': return { back: `<path d="M84 102l20-34 7 4-19 32z" fill="#E0A458" ${st}/><rect x="18" y="98" width="84" height="10" fill="#9B6B3A" ${st}/>`, front: `<rect x="15" y="104" width="90" height="24" rx="3" fill="#E0A458" ${st}/><rect x="46" y="111" width="28" height="10" rx="2" fill="#fff" ${stroke(1.5)}/>` };
+    case 'teacup': return { back: `<ellipse cx="60" cy="126" rx="46" ry="5" fill="#EDE7F6" ${st}/><path d="M94 104q19-2 17 11-2 9-17 8" fill="none" ${stroke(4)}/>`, front: `<path d="M24 98h72q0 30-36 30T24 98z" fill="#fff" ${st}/><path d="M28 108q32 9 64 0" fill="none" stroke="#F2779A" stroke-width="3" stroke-linecap="round"/>` };
+    case 'cloud': return { back: '', front: `<g fill="#fff" ${st}><circle cx="26" cy="116" r="11"/><circle cx="44" cy="111" r="14"/><circle cx="64" cy="113" r="15"/><circle cx="84" cy="111" r="13"/><circle cx="97" cy="117" r="10"/></g><g fill="#fff"><circle cx="26" cy="116" r="9.6"/><circle cx="44" cy="111" r="12.6"/><circle cx="64" cy="113" r="13.6"/><circle cx="84" cy="111" r="11.6"/><circle cx="97" cy="117" r="8.6"/></g>` };
+    case 'tub': return { back: `<g fill="#DFF3FF" ${stroke(1.5)}><circle cx="20" cy="90" r="5"/><circle cx="28" cy="80" r="3"/><circle cx="102" cy="88" r="4"/></g>`, front: `<circle cx="32" cy="126" r="4" fill="#FFC93C" ${st}/><circle cx="88" cy="126" r="4" fill="#FFC93C" ${st}/><path d="M13 102h94v4q0 18-18 18H31q-18 0-18-18z" fill="#fff" ${st}/><rect x="9" y="96" width="102" height="8" rx="4" fill="#EDE7F6" ${st}/><g fill="#DFF3FF" ${stroke(1.5)}><circle cx="40" cy="96" r="5"/><circle cx="50" cy="93" r="4"/><circle cx="78" cy="95" r="5"/></g>` };
+    case 'pizza': return { back: `<path d="M20 104l6-42h68l6 42z" fill="#E0A458" ${st}/>`, front: `<rect x="12" y="104" width="96" height="15" rx="2" fill="#E0A458" ${st}/><text x="60" y="115.5" font-size="9" text-anchor="middle" fill="#C8443F" font-family="inherit">HOT EGG</text>` };
+    case 'rocket': return { back: `<path d="M27 104L10 127h24zM93 104l17 23H86z" fill="#3F7FD9" ${st}/><path d="M44 120q16 18 32 0z" fill="#FFC93C" ${st}/>`, front: `<path d="M24 100h72l-7 22H31z" fill="#E53935" ${st}/><path d="M29 109h62" fill="none" stroke="#fff" stroke-width="3"/>` };
+    default: return { back: '', front: '' };
+  }
+}
+function petBody(s, full, wear) {
   const ty = TOPY[s.shape], ey = EYEY[s.shape], my = ey + 16, hx = HALF[s.shape], sd = SIDE[s.shape], st = stroke(3);
   const top = [
     `<path d="M${60 - hx} ${ty + 12}l-5-20 15 10z M${60 + hx} ${ty + 12}l5-20-15 10z" fill="#FFF3D6" ${st}/>`,
@@ -466,21 +720,40 @@ function petBody(s, full) {
     `<ellipse cx="60" cy="${my + 3}" rx="5" ry="6" fill="#5A2A3C" ${stroke(2.5)}/>`,
   ][s.mouth];
   const cheeks = `<g fill="#FF6B8A" opacity=".35"><circle cx="41" cy="${my - 1}" r="5"/><circle cx="79" cy="${my - 1}" r="5"/></g>`;
-  return top + limbs + body + spots + cheeks + eyes + mouth;
+  const fit = full && wear ? dress(wear, { ey, my, sd, hw: Math.round((sd + hx) / 2), ex, er }) : { back: '', front: '' };
+  return top + fit.back + limbs + body + spots + cheeks + eyes + mouth + fit.front;
 }
 function creatureSVG(id, stage, o = {}) {
-  const s = spec(id), size = o.size || 120;
+  const s = spec(id), size = o.size || 120, wear = o.wear || {};
   let inner;
   if (stage <= 2) inner = eggArt(s, stage);
   else if (stage === 3) inner = `<g transform="translate(60 72) scale(.74) translate(-60 -72)">${petBody(s, false)}</g><path d="M30 92l8-8 8 8 7-8 7 8 7-8 7 8 8-8 8 8q0 30-30 30T30 92z" fill="${s.egg}" ${stroke(3)}/>`;
-  else inner = petBody(s, true) + (o.hat ? `<g transform="translate(60 ${TOPY[s.shape] + 3})">${hatArt(o.hat)}</g>` : '');
-  return `<svg class="pet st${stage} ${o.cls || ''}" viewBox="0 -14 120 144" width="${size}" height="${Math.round(size * 1.2)}" aria-hidden="true"><ellipse cx="60" cy="122" rx="30" ry="5" fill="rgba(0,0,0,.1)"/>${inner}</svg>`;
+  else inner = petBody(s, true, wear) + (wear.hat ? `<g transform="translate(60 ${TOPY[s.shape] + 3})">${hatArt(wear.hat)}</g>` : '');
+  const bed = stage <= 3 && o.bed ? bedArt(o.bed) : null;
+  const floor = bed ? '' : '<ellipse cx="60" cy="122" rx="30" ry="5" fill="rgba(0,0,0,.1)"/>';
+  return `<svg class="pet st${stage} ${o.cls || ''}" viewBox="0 -14 120 146" width="${size}" height="${Math.round(size * 1.22)}" aria-hidden="true">${floor}${bed ? bed.back : ''}${inner}${bed ? bed.front : ''}</svg>`;
 }
 
 /* ---------- facts as words and pictures ---------- */
 const canon = id => E.pose(E.find(id).fact, false);
-const factText = (id, withAnswer) => { const p = canon(id); return `${p.x} ${p.op} ${p.y}` + (withAnswer ? ` = ${p.ans}` : ''); };
+const isWord = id => E.find(id).fact.kind === 'w';
+const factText = (id, withAnswer) => { const p = canon(id); return isWord(id) ? (withAnswer ? p.ans : 'a secret word') : `${p.x} ${p.op} ${p.y} = ${withAnswer ? p.ans : '?'}`; };
+const qText = q => q.kind === 'w' ? q.ans : `${q.x} ${q.op} ${q.y} = ${q.ans}`;
+const qHTML = q => q.kind === 'w' ? `<b>${q.ans}</b>` : `${q.x} ${opHTML(q.op)} ${q.y} = <b>${q.ans}</b>`;
+function questionHTML(q, cls) {
+  const box = `<span class="box ${cls} ${q.kind === 'w' ? 'word' : ''}" id="box">${esc(ui.typed)}</span>`;
+  return q.kind === 'w'
+    ? `<div class="q word"><button class="btn" data-act="say" aria-label="Hear the word again">🔊</button>${box}</div>`
+    : `<div class="q"><span>${q.x}</span><span class="op">${opHTML(q.op)}</span><span>${q.y}</span><span>=</span>${box}</div>`;
+}
+const hintText = q => q.kind === 'w' ? 'Listen, type the word, then press Enter. The space bar says it again.' : `Type the answer, then press Enter${Mic.on ? ', or just say it out loud' : ''}.`;
+function spellTiles(word, given) {
+  const mine = String(given || '');
+  const yours = mine ? `<p class="tiny" style="margin:0">You typed</p><div class="tiles yours">${[...mine].map(c => `<span>${esc(c)}</span>`).join('')}</div>` : '';
+  return `${yours}<p class="tiny" style="margin:0">It is spelled</p><div class="tiles">${[...word].map((c, i) => `<span class="${mine[i] === c ? '' : 'miss'}">${c}</span>`).join('')}</div>`;
+}
 function trick(q) {
+  if (q.kind === 'w') return SPELL_TIPS[q.ans] || 'Say each letter out loud while you look at it. Then cover it and picture it in your head.';
   const lo = Math.min(q.x, q.y), hi = Math.max(q.x, q.y), a = q.ans;
   if (q.kind === 'x') {
     if (lo === 1) return 'Anything times 1 stays exactly the same. Easy egg!';
@@ -513,7 +786,8 @@ function trick(q) {
   if (q.y === a) return `A double, backwards: ${a} + ${a} = ${q.x}, so ${q.x} − ${a} = ${a}.`;
   return `Think adding: ${q.y} + what = ${q.x}? It is ${a}, because ${q.y} + ${a} = ${q.x}.`;
 }
-function picture(q) {
+function picture(q, given) {
+  if (q.kind === 'w') return spellTiles(q.ans, given);
   const dot = (cx, cy, fill, o = 1) => `<circle cx="${cx}" cy="${cy}" r="5" fill="${fill}" opacity="${o}"/>`;
   if (q.kind === 'x') {
     const lo = Math.min(q.x, q.y), hi = Math.max(q.x, q.y);
@@ -555,6 +829,24 @@ function sfx(kind) {
   } catch (err) { console.warn('[Hatchery] Sound failed:', err); }
 }
 
+/* ---------- reading spelling words aloud ---------- */
+const canSpeak = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
+function say(text) {
+  if (!canSpeak) return;
+  try {
+    const u = new SpeechSynthesisUtterance(text), voices = speechSynthesis.getVoices();
+    const v = voices.find(x => x.lang === 'en-US' && x.localService) || voices.find(x => /^en/i.test(x.lang));
+    u.lang = 'en-US'; u.rate = 0.8;
+    if (v) u.voice = v;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  } catch (err) { console.warn('[Hatchery] Could not read the word aloud:', err); }
+}
+const sayQ = q => { if (q && q.kind === 'w') say(q.ans); };
+const isSpelling = () => !!save && E.SUBJECTS[save.subject].facts[0].kind === 'w';
+const inGame = () => ui.screen === 'round' || ui.screen === 'boss' || ui.screen === 'speed';
+const micOK = () => Mic.supported && !isSpelling();
+
 /* ---------- microphone ---------- */
 const Mic = {
   supported: !!(window.SpeechRecognition || window.webkitSpeechRecognition), on: false, rec: null, status: '', fails: 0, t: 0,
@@ -569,25 +861,34 @@ const Mic = {
     };
     rec.onend = () => {
       this.rec = null;
-      if (!this.on || ui.screen !== 'round') return;
+      if (!this.on || !inGame()) return;
       this.fails = Date.now() - this.t < 1500 ? this.fails + 1 : 0;
       if (this.fails >= 3) { this.fail('The microphone stopped. Typing still works!'); return; }
-      setTimeout(() => { if (this.on && ui.screen === 'round') this.start(); }, 300);
+      setTimeout(() => { if (this.on && inGame()) this.start(); }, 300);
     };
     this.rec = rec; this.on = true; this.status = ''; this.t = Date.now();
     try { rec.start(); } catch (err) { this.fail('The microphone would not start. Typing still works!'); }
   },
   stop() { this.on = false; const r = this.rec; this.rec = null; if (r) { r.onend = null; try { r.stop(); } catch (err) { /* already stopped */ } } },
-  fail(msg) { this.stop(); this.status = msg; if (save) { save.mic = false; persist(); } if (ui.screen === 'round') render(); },
+  fail(msg) { this.stop(); this.status = msg; if (save) { save.mic = false; persist(); } if (inGame()) render(); },
 };
+function askingNow() {
+  if (ui.screen === 'round') return ui.phase === 'ask' && !ui.overlay ? ui.q : null;
+  if (ui.screen === 'boss') return ui.boss && ui.boss.phase === 'ask' ? ui.boss.qs[ui.boss.i] : null;
+  if (ui.screen === 'speed') return ui.speed && ui.speed.phase === 'ask' ? ui.speed.q : null;
+  return null;
+}
+function submitAny() { if (ui.screen === 'round') submit(); else if (ui.screen === 'boss') bossSubmit(); else if (ui.screen === 'speed') speedSubmit(); }
 function onVoice(alts) {
-  if (ui.screen !== 'round') return;
-  if (ui.overlay) { if (alts.some(t => /\b(next|okay|ok|got it|hooray|go)\b/i.test(t))) closeOverlay(); return; }
-  if (ui.phase !== 'ask') return;
+  if (!inGame()) return;
+  const yes = alts.some(t => /\b(next|okay|ok|got it|hooray|go|start)\b/i.test(t));
+  if (ui.screen === 'round' && ui.overlay) { if (yes) closeOverlay(); return; }
+  const q = askingNow();
+  if (!q) { if (yes && ui.screen === 'speed' && ui.speed.phase === 'ready') speedStart(); return; }
   const nums = alts.map(E.parseSpoken).filter(n => n !== null);
-  if (!nums.length) { ui.bubble = 'I did not catch a number. Say it again!'; render(); return; }
-  ui.typed = String(nums.includes(ui.q.ans) ? ui.q.ans : nums[0]).slice(0, 3);
-  submit();
+  if (!nums.length) { if (ui.screen === 'round') { ui.bubble = 'I did not catch a number. Say it again!'; render(); } return; }
+  ui.typed = String(nums.includes(q.ans) ? q.ans : nums[0]).slice(0, 3);
+  submitAny();
 }
 
 /* ---------- playing a round ---------- */
@@ -596,7 +897,7 @@ function startRound() {
   ui.round = E.startRound();
   ui.screen = 'round';
   Mic.status = '';
-  if (save.mic) Mic.start();
+  if (save.mic && micOK()) Mic.start();
   nextQ();
 }
 function nextQ() {
@@ -608,12 +909,14 @@ function nextQ() {
   ui.bubble = q.stage <= 2 ? rand(ASK[q.stage]) : q.stage === 3 ? rand([`${name} is hungry for an answer.`, `${name} wants to grow up big and weird.`]) : rand([`${name} is checking you still remember.`, `${name} says: pop quiz!`]);
   ui.t0 = performance.now();
   render();
+  sayQ(q);
 }
 function submit() {
   if (ui.phase !== 'ask' || !ui.typed) return;
-  const q = ui.q, given = Number(ui.typed), ms = performance.now() - ui.t0;
+  const q = ui.q, given = q.kind === 'w' ? ui.typed : Number(ui.typed), ms = performance.now() - ui.t0;
   const res = E.answer(save, ui.round, q, given, ms, Date.now());
   persist();
+  ui.round.quests = (ui.round.quests || []).concat(res.quests);
   ui.res = res; ui.phase = 'feedback';
   const name = spec(q.id).name;
   if (!res.correct) { sfx('wrong'); ui.overlay = { type: 'teach', given, line: rand(OOPS) }; }
@@ -622,7 +925,7 @@ function submit() {
   else {
     sfx('right');
     ui.bubble = { warmed: 'Warm! This egg will pop back in a moment.', cracked: 'CRACK! Nearly ready. See you tomorrow, egg.', almost: 'Right! Answer a bit quicker next time and it will grow up.', kept: `${name} is still all grown up. Phew!`, fixed: 'That is it! You have got it now.' }[res.event] || rand(q.stage <= 2 ? EGG_OK : PET_OK);
-    ui.timer = setTimeout(nextQ, 1500);
+    ui.timer = setTimeout(nextQ, res.quests.length ? 3200 : 1500);
   }
   if (ui.overlay) ui.lock = Date.now() + 450;
   render();
@@ -634,32 +937,113 @@ function closeOverlay() {
 }
 function endRound() {
   const r = ui.round;
-  E.finishRound(save, r, Date.now());
+  const done = E.finishRound(save, r, Date.now());
   persist();
   Mic.stop();
-  ui.sum = { ok: r.ok, asked: r.asked, hatched: r.hatched.slice(), grown: r.grown.slice(), seeds: r.seeds };
+  ui.sum = { ok: r.ok, asked: r.asked, hatched: r.hatched.slice(), grown: r.grown.slice(), seeds: r.seeds, stars: r.stars || 0, quests: (r.quests || []).concat(done) };
   ui.screen = 'summary';
   sfx('done');
   render();
 }
-function leaveRound() { clearTimeout(ui.timer); Mic.stop(); ui.overlay = null; ui.round = null; }
+function leaveGame() { clearTimeout(ui.timer); clearInterval(ui.tick); Mic.stop(); if (canSpeak) speechSynthesis.cancel(); ui.overlay = null; ui.round = null; ui.boss = null; ui.speed = null; }
+
+function startBoss(key) {
+  leaveGame();
+  ui.boss = Object.assign(E.startBoss(save, key, Date.now()), { phase: 'ask', line: rand(BOSS_TAUNT), res: null, last: null });
+  persist();
+  ui.typed = ''; ui.screen = 'boss'; Mic.status = '';
+  if (save.mic && micOK()) Mic.start();
+  render();
+  sayQ(ui.boss.qs[0]);
+}
+function bossSubmit() {
+  const b = ui.boss;
+  if (!b || b.phase !== 'ask' || !ui.typed) return;
+  const q = b.qs[b.i], res = E.bossAnswer(save, b, q.kind === 'w' ? ui.typed : Number(ui.typed), Date.now());
+  persist();
+  b.res = res; b.last = q;
+  if (res.over) { b.phase = 'over'; ui.lock = Date.now() + 900; Mic.stop(); sfx(res.over === 'win' ? 'grown' : 'wrong'); render(); return; }
+  b.phase = 'feedback';
+  b.line = res.correct ? rand(BOSS_OUCH) : q.kind === 'w' ? `Ha! It is spelled ${q.ans}.` : `Ha! ${q.x} ${q.op} ${q.y} is ${q.ans}.`;
+  sfx(res.correct ? 'right' : 'wrong');
+  render();
+  ui.timer = setTimeout(bossNext, res.correct ? 1000 : 2600);
+}
+function bossNext() {
+  clearTimeout(ui.timer);
+  const b = ui.boss;
+  if (!b || b.phase !== 'feedback') return;
+  b.phase = 'ask'; b.line = rand(BOSS_TAUNT); ui.typed = '';
+  render();
+  sayQ(b.qs[b.i]);
+}
+
+const SPEED_SECS = 60;
+function speedStart() {
+  const sp = ui.speed;
+  if (!sp || sp.phase !== 'ready') return;
+  Object.assign(sp, { phase: 'ask', end: Date.now() + SPEED_SECS * 1000, score: 0, q: E.speedQuestion(save, null), flash: '' });
+  ui.typed = ''; Mic.status = '';
+  if (save.mic && micOK()) Mic.start();
+  clearInterval(ui.tick);
+  ui.tick = setInterval(speedTick, 200);
+  render();
+  sayQ(sp.q);
+}
+function speedTick() {
+  const sp = ui.speed;
+  if (!sp || ui.screen !== 'speed' || sp.phase === 'ready' || sp.phase === 'over') { clearInterval(ui.tick); return; }
+  const left = sp.end - Date.now();
+  if (left <= 0) { speedEnd(); return; }
+  const bar = document.querySelector('#sbar');
+  if (bar) bar.style.width = (left / (SPEED_SECS * 10)) + '%';
+}
+function speedSubmit() {
+  const sp = ui.speed;
+  if (!sp || sp.phase !== 'ask' || !ui.typed) return;
+  const q = sp.q;
+  if (E.same(ui.typed, q.ans)) { sp.score++; sfx('right'); speedNextQ(); return; }
+  E.miss(save, q.id, Date.now());
+  sfx('wrong');
+  sp.phase = 'flash'; sp.flash = qText(q);
+  render();
+  ui.timer = setTimeout(speedNextQ, 1200);
+}
+function speedNextQ() {
+  clearTimeout(ui.timer);
+  const sp = ui.speed;
+  if (!sp || sp.phase === 'over' || sp.phase === 'ready') return;
+  sp.q = E.speedQuestion(save, sp.q.id); sp.phase = 'ask'; sp.flash = ''; ui.typed = '';
+  render();
+  sayQ(sp.q);
+}
+function speedEnd() {
+  clearInterval(ui.tick); clearTimeout(ui.timer);
+  const sp = ui.speed;
+  sp.res = E.speedFinish(save, sp.score, Date.now());
+  sp.phase = 'over'; ui.lock = Date.now() + 1500;
+  persist(); Mic.stop();
+  if (canSpeak) speechSynthesis.cancel();
+  sfx('done');
+  render();
+}
 
 /* ---------- screens ---------- */
 const soundBtn = () => `<button class="btn sm noprint" data-act="sound" aria-label="Sound ${save.sound ? 'on' : 'off'}">${save.sound ? '🔊' : '🔇'}</button>`;
-const micBtn = () => Mic.supported ? `<button class="btn sm ${Mic.on ? 'live' : ''}" data-act="mic">🎤 ${Mic.on ? 'Listening' : 'Mic off'}</button>` : '';
+const micBtn = () => micOK() ? `<button class="btn sm ${Mic.on ? 'live' : ''}" data-act="mic">🎤 ${Mic.on ? 'Listening' : 'Mic off'}</button>` : '';
 const logo = () => `<div class="logo">${creatureSVG('7x8', 2, { size: 46 })}<h1>The Odd Egg Hatchery</h1></div>`;
 const backBar = title => `<header class="top"><button class="btn sm noprint" data-act="home">← Home</button><h1>${title}</h1><div class="chips"><span class="chip">🌱 ${save.seeds}</span></div></header>`;
 function avatar(p, size) {
   const S = E.SUBJECTS[p.subject], best = S.facts.slice().sort((a, b) => p.facts[b.id].s - p.facts[a.id].s)[0];
-  return creatureSVG(best.id, p.facts[best.id].s, { size, hat: p.worn[best.id] });
+  return creatureSVG(best.id, p.facts[best.id].s, { size, bed: p.bed, wear: p.worn[best.id] });
 }
 
 function vWelcome() {
-  const opts = Object.keys(E.SUBJECTS).map((k, i) => `<label><input type="radio" name="subject" value="${k}" ${i === 0 ? 'checked' : ''}><b>${E.SUBJECTS[k].name}</b><span class="tiny">${E.SUBJECTS[k].blurb}</span></label>`).join('');
+  const opts = Object.keys(E.SUBJECTS).map((k, i) => `<label><input type="radio" name="subject" value="${k}" ${i === 0 ? 'checked' : ''} ${E.SUBJECTS[k].facts[0].kind === 'w' && !canSpeak ? 'disabled' : ''}><b>${E.SUBJECTS[k].name}</b><span class="tiny">${E.SUBJECTS[k].blurb}</span></label>`).join('');
   return `<header class="top">${logo()}${root.players.length ? '<button class="btn sm" data-act="who">← Back</button>' : ''}</header>
   <section class="card hero"><div>
     <p class="hello">Welcome, new Hatchery Keeper!</p>
-    <p class="lead" style="max-width:44ch">Every egg hides a math fact. Answer it and the egg warms up, cracks, and hatches into a very odd pet. Grow them all up and you are a math legend.</p>
+    <p class="lead" style="max-width:44ch">Every egg hides a math fact or a spelling word. Get it right and the egg warms up, cracks, and hatches into a very odd pet. Grow them all up and you are a legend.</p>
     <form class="form" data-form="welcome">
       <label>What is your name?<input type="text" name="name" maxlength="16" autocomplete="off" autofocus></label>
       <div><p style="margin-bottom:8px;font-size:1.1rem">What do you want to hatch?</p><div class="pick">${opts}</div></div>
@@ -673,26 +1057,49 @@ function vWho() {
   const add = root.players.length < MAX_PLAYERS ? `<button class="pcard add" data-act="addplayer"><span class="plus">+</span><b>New player</b></button>` : '';
   return `<header class="top">${logo()}</header><section class="card"><h2>Who is hatching today?</h2><div class="who">${cards}${add}</div></section>`;
 }
+function levelCard() {
+  const lv = E.levelInfo(save.stars);
+  if (lv.level <= save.seenLevel) return '';
+  const fresh = ITEMS.filter(it => it.lvl > save.seenLevel && it.lvl <= lv.level && !save.owned.includes(it.id)).map(it => it.name);
+  if (save.seenLevel < E.SPEED_LEVEL && lv.level >= E.SPEED_LEVEL) fresh.push('the speed nest');
+  return `<section class="card levelup pop"><p class="shout">⭐ LEVEL UP! ⭐</p><p class="petname">Level ${lv.level}: ${RANKS[lv.level - 1]}</p>
+    <p class="facts">${fresh.length ? 'Unlocked: ' + esc(fresh.slice(0, 5).join(', ')) + (fresh.length > 5 ? ` and ${fresh.length - 5} more` : '') + '.' : 'Keep hatching!'}</p>
+    <button class="btn big" data-act="levelup">Woohoo! +${20 * (lv.level - save.seenLevel)} 🌱</button></section>`;
+}
 function vHome() {
   const now = Date.now(), st = E.stats(save, now), S = E.SUBJECTS[save.subject], pct = Math.round(st.grown / st.total * 100);
+  const lv = E.levelInfo(save.stars), qs = E.ensureQuests(save, now), bosses = E.bossList(save, now);
   const next = S.facts.filter(f => save.facts[f.id].s >= 1 && save.facts[f.id].due <= now)[0] || S.facts.find(f => save.facts[f.id].s === 0) || S.facts[0];
   const ns = save.facts[next.id].s;
   const line = st.grown === st.total ? 'Every single pet is grown up. You did it!' : st.due > 0 ? `${plural(st.due, 'egg')} ${st.due === 1 ? 'needs' : 'need'} checking today.` : st.q === 0 ? 'Your eggs are cold. Answer right to warm them up!' : 'Your eggs are resting. Meet some new ones, or do bonus practice.';
   const pets = S.facts.filter(f => save.facts[f.id].s >= 3).slice(-10);
-  return `<header class="top">${logo()}<div class="chips"><span class="chip">🌱 ${plural(save.seeds, 'seed')}</span><span class="chip">🔥 ${plural(st.streak, 'day')} in a row</span>${soundBtn()}</div></header>
+  const quests = qs.list.map(q => `<div class="quest ${q.done ? 'done' : ''}"><span>${q.done ? '✅' : '⬜'}</span><span style="flex:1">${questText(q)}</span><span class="mini"><i style="width:${Math.round(q.n / q.goal * 100)}%"></i></span><span>${q.n}/${q.goal}</span></div>`).join('');
+  const won = S.groups.filter(g => save.bosses[g.key] && save.bosses[g.key].won).length;
+  const bossUI = bosses.length ? bosses.slice(0, 3).map(b => b.canTry ? `<button class="btn" data-act="boss" data-key="${b.key}">👹 Boss egg: ${esc(b.label)}</button>` : `<p class="tiny" style="margin:0">The ${esc(b.label)} boss egg is hiding until tomorrow.</p>`).join('')
+    : '<p class="tiny" style="margin:0">Hatch all ten eggs in a set and its boss egg shows up.</p>';
+  const speedUI = E.speedOpen(save) ? `<button class="btn" data-act="speed">⚡ Speed nest${save.speedBest ? ` (best ${save.speedBest})` : ''}</button>` : `<p class="tiny" style="margin:0">⚡ The speed nest opens at level ${E.SPEED_LEVEL}, once 8 pets have hatched.</p>`;
+  return `<header class="top">${logo()}<div class="chips"><span class="chip">⭐ Level ${lv.level}</span><span class="chip">🌱 ${plural(save.seeds, 'seed')}</span><span class="chip">🔥 ${plural(st.streak, 'day')} in a row</span>${soundBtn()}</div></header>
+  ${levelCard()}
   <section class="card hero"><div>
     <p class="hello">Hi ${esc(save.name)}!</p><p class="lead">${line}</p>
     <button class="btn big" data-act="play">Warm some eggs ▶</button><p class="tiny">or press Enter</p></div>
-    <div class="heroart">${creatureSVG(next.id, ns, { size: 180, cls: ns <= 2 ? 'wobble' : 'bob', hat: save.worn[next.id] })}</div>
+    <div class="heroart">${creatureSVG(next.id, ns, { size: 180, cls: ns <= 2 ? 'wobble' : 'bob', bed: save.bed, wear: save.worn[next.id] })}</div>
   </section>
+  <div class="duo">
+    <section class="card"><h2>Level ${lv.level}: ${RANKS[lv.level - 1]}</h2>
+      <div class="bar" style="height:20px" role="img" aria-label="Level progress"><i style="width:${lv.max ? 100 : Math.round(lv.into / lv.need * 100)}%;background:var(--sun)"></i></div>
+      <p class="tiny">${lv.max ? 'Top level! You are a legend.' : `⭐ ${lv.into} of ${lv.need} stars to level ${lv.level + 1}`}</p>
+      <h3 style="margin-top:14px">Today's quests</h3>${quests}</section>
+    <section class="card"><h2>Challenges</h2><div class="col">${bossUI}${speedUI}</div><p class="tiny">🏆 Boss eggs beaten: ${won} of ${S.groups.length}</p></section>
+  </div>
   <section class="card"><h2>${st.grown} of ${st.total} pets all grown up</h2>
     <div class="bar" role="img" aria-label="${pct} percent"><i style="width:${pct}%"></i></div>
     <div class="stages"><span>🥶 <b>${st.by[0]}</b> cold</span><span>🥚 <b>${st.by[1] + st.by[2]}</b> warming</span><span>🐣 <b>${st.by[3]}</b> hatched</span><span>⭐ <b>${st.by[4]}</b> grown up</span></div>
-    <div class="tables">${st.groups.map(g => `<div class="tb ${g.n === g.of ? 'done' : ''}"><b>${g.label}</b>${g.n}/${g.of}</div>`).join('')}</div>
+    <div class="tables">${st.groups.map(g => `<div class="tb ${g.n === g.of ? 'done' : ''}"><b>${g.label}${save.bosses[g.key] && save.bosses[g.key].won ? ' 🏆' : ''}</b>${g.n}/${g.of}</div>`).join('')}</div>
   </section>
-  <nav class="row"><button class="btn" data-act="book">📖 Pet book</button><button class="btn" data-act="shop">🎩 Hat shop</button>${save.done ? '<button class="btn" data-act="cert">🏆 Certificate</button>' : ''}<button class="btn" data-act="who">👥 Switch player</button><button class="btn" data-act="grown">Grown-ups</button></nav>
+  <nav class="row"><button class="btn" data-act="book">📖 Pet book</button><button class="btn" data-act="shop">🛍️ Shop</button>${save.done ? '<button class="btn" data-act="cert">🏆 Certificate</button>' : ''}<button class="btn" data-act="who">👥 Switch player</button><button class="btn" data-act="grown">Grown-ups</button></nav>
   ${saveBroken ? '<p class="tiny warn">This browser is not letting the game save. Progress may be lost when you close it.</p>' : ''}
-  <div class="parade">${pets.map((f, i) => `<span style="animation-delay:${-i * 0.23}s" class="bob">${creatureSVG(f.id, save.facts[f.id].s, { size: 76, hat: save.worn[f.id] })}</span>`).join('')}</div>`;
+  <div class="parade">${pets.map((f, i) => `<span style="animation-delay:${-i * 0.23}s" class="bob">${creatureSVG(f.id, save.facts[f.id].s, { size: 76, bed: save.bed, wear: save.worn[f.id] })}</span>`).join('')}</div>`;
 }
 function vOverlay() {
   const q = ui.q, o = ui.overlay, s = spec(q.id), res = ui.res;
@@ -701,25 +1108,25 @@ function vOverlay() {
     const lo = Math.min(q.x, q.y), hi = Math.max(q.x, q.y);
     const chain = q.kind === 'x' && lo > 1 ? `<p class="chain">Count by ${hi}s: ${Array.from({ length: lo }, (_, i) => i === lo - 1 ? `<b>${hi * (i + 1)}</b>` : hi * (i + 1)).join(', ')}</p>` : '';
     return `<div class="veil"><div class="card pop"><span class="tag">${esc(o.line)}</span>
-      <div class="bigfact">${q.x} ${opHTML(q.op)} ${q.y} = <b>${q.ans}</b></div>${picture(q)}
+      <div class="bigfact">${qHTML(q)}</div>${picture(q, o.given)}${q.kind === 'w' ? '<p><button class="btn sm" data-act="say">🔊 Hear it again</button></p>' : ''}
       <p class="trick">💡 ${esc(trick(q))}</p>${chain}
       <button class="btn big" data-act="next">Got it ▶</button><p class="tiny">or press Enter${say}. This one will come back in a moment.</p></div></div>`;
   }
   if (o.type === 'hatch') {
     const when = res.event === 'placed' ? 'tomorrow' : 'in 2 days';
     return `<div class="veil"><div class="card pop"><p class="shout">${res.event === 'placed' ? 'POP! You knew that one!' : 'CRACK! It hatched!'}</p>
-      ${creatureSVG(q.id, 3, { size: 170, cls: 'bob' })}
+      ${creatureSVG(q.id, 3, { size: 170, cls: 'bob', bed: save.bed })}
       <p class="petname">Meet ${esc(s.name)}</p>
-      <p class="facts"><b>${q.x} ${q.op} ${q.y} = ${q.ans}</b><br>Likes: ${esc(s.hobby)}.<br>Scared of: ${esc(s.fear)}.</p>
-      <p class="tiny" style="margin-bottom:12px">+${res.seeds} 🌱 &nbsp; It visits again ${when}. Answer right and it grows up.</p>
+      <p class="facts"><b>${esc(qText(q))}</b><br>Likes: ${esc(s.hobby)}.<br>Scared of: ${esc(s.fear)}.</p>
+      <p class="tiny" style="margin-bottom:12px">+${res.seeds} 🌱 +${res.stars} ⭐ &nbsp; It visits again ${when}. Answer right and it grows up.</p>${questLine(res.quests)}
       <button class="btn big" data-act="next">Aww! Next ▶</button><p class="tiny">or press Enter${say}</p></div></div>`;
   }
   const badge = res.badges.map(b => `<p class="trick" style="text-align:center">🏅 You finished the whole <b>${esc(b)}</b> set! +25 🌱</p>`).join('');
   return `<div class="veil"><div class="card pop"><p class="shout">ALL GROWN UP!</p>
-    ${creatureSVG(q.id, 4, { size: 180, cls: 'bob', hat: save.worn[q.id] })}
+    ${creatureSVG(q.id, 4, { size: 180, cls: 'bob', bed: save.bed, wear: save.worn[q.id] })}
     <p class="petname">${esc(s.name)}</p>
-    <p class="facts">You know <b>${q.x} ${q.op} ${q.y} = ${q.ans}</b> by heart now.<br>Grown-up pets can wear hats from the hat shop.</p>${badge}
-    <p class="tiny" style="margin-bottom:12px">+${res.seeds} 🌱</p>
+    <p class="facts">You know <b>${esc(qText(q))}</b> by heart now.<br>Grown-up pets can dress up. Visit the shop!</p>${badge}
+    <p class="tiny" style="margin-bottom:12px">+${res.seeds} 🌱 +${res.stars} ⭐</p>${questLine(res.quests)}
     <button class="btn big" data-act="next">Hooray ▶</button><p class="tiny">or press Enter${say}</p></div></div>`;
 }
 function vRound() {
@@ -729,65 +1136,134 @@ function vRound() {
   return `<header class="top"><button class="btn sm" data-act="home">← Home</button><div class="dots" role="img" aria-label="Question ${r.asked} of ${r.len}">${dots}</div><div class="chips"><span class="chip">🌱 ${save.seeds}</span>${micBtn()}${soundBtn()}</div></header>
   <main class="card stage">
     ${q.mode === 'practice' ? '<span class="tag">Bonus practice</span>' : ''}
-    <div class="nest">${creatureSVG(q.id, shown, { size: 190, cls: shown <= 2 ? 'wobble' : 'bob', hat: save.worn[q.id] })}</div>
+    <div class="nest">${creatureSVG(q.id, shown, { size: 190, cls: shown <= 2 ? 'wobble' : 'bob', bed: save.bed, wear: save.worn[q.id] })}</div>
     <p class="bubble">${esc(ui.bubble)}</p>
-    <div class="q"><span>${q.x}</span><span class="op">${opHTML(q.op)}</span><span>${q.y}</span><span>=</span><span class="box ${good ? 'good' : ui.phase === 'ask' ? 'ask' : ''}" id="box">${esc(ui.typed)}</span></div>
-    <p class="tiny">${good ? `+${ui.res.seeds} 🌱${ui.res.quick ? ' &nbsp;Speedy!' : ''}` : `Type the answer, then press Enter${Mic.on ? ', or just say it out loud' : ''}.`}</p>
+    ${questionHTML(q, good ? 'good' : ui.phase === 'ask' ? 'ask' : '')}
+    <p class="tiny">${good ? `+${ui.res.seeds} 🌱${ui.res.stars ? ` &nbsp;+${ui.res.stars} ⭐` : ''}${ui.res.quick ? ' &nbsp;Speedy!' : ''}` : hintText(q)}</p>
+    ${good ? questLine(ui.res.quests) : ''}
     ${Mic.status ? `<p class="tiny warn">${esc(Mic.status)}</p>` : ''}
   </main>${ui.overlay ? vOverlay() : ''}`;
 }
+function bossSVG(hurt, size, beaten) {
+  const cracks = ['M40 60l10 8-4 9 9 6', 'M120 58l-9 9 5 8-8 7', 'M34 106l11-3 3 10 10-1', 'M126 102l-10-2-4 10-9 0', 'M62 34l5 11-7 7 6 8', 'M98 34l-4 12 8 6-5 9', 'M54 142l7-9 9 5 5-9', 'M106 142l-8-8-8 6-6-9', 'M76 154l4-10 6 8', 'M28 84l10 2 2 9'];
+  const eyes = beaten ? `<path d="M56 80l12 12M68 80l-12 12M92 80l12 12M104 80l-12 12" fill="none" ${stroke(4)}/>`
+    : `<circle cx="62" cy="88" r="11" fill="#fff" ${stroke(3)}/><circle cx="98" cy="88" r="11" fill="#fff" ${stroke(3)}/><circle cx="64" cy="90" r="4.5" fill="${INK}"/><circle cx="96" cy="90" r="4.5" fill="${INK}"/><path d="M46 70l26 9M114 70l-26 9" fill="none" ${stroke(5)}/>`;
+  const mouth = beaten ? `<ellipse cx="80" cy="118" rx="9" ry="7" fill="#5A2A3C" ${stroke(3)}/><path d="M76 121q4 12 8 0z" fill="#FF6B8A" ${stroke(2)}/>` : `<path d="M62 122q18-12 36 0" fill="none" ${stroke(4)}/>`;
+  return `<svg class="pet ${beaten ? '' : 'wobble'}" viewBox="0 0 160 178" width="${size}" height="${Math.round(size * 1.11)}" aria-hidden="true"><ellipse cx="80" cy="170" rx="46" ry="6" fill="rgba(0,0,0,.12)"/>
+    <path d="M58 34V14l11 9 11-14 11 14 11-9v20z" fill="#FFC93C" ${stroke(3)}/>
+    <ellipse cx="80" cy="98" rx="56" ry="70" fill="#7A5BB5" ${stroke(4)}/><g fill="rgba(0,0,0,.14)"><circle cx="46" cy="128" r="9"/><circle cx="118" cy="122" r="7"/><circle cx="100" cy="148" r="5"/></g>
+    ${eyes}${mouth}<g fill="none" ${stroke(3)}>${cracks.slice(0, hurt).map(d => `<path d="${d}"/>`).join('')}</g></svg>`;
+}
+function vBoss() {
+  const b = ui.boss, total = b.qs.length;
+  const top = extra => `<header class="top"><button class="btn sm" data-act="home">← Home</button><div class="hearts" role="img" aria-label="${plural(b.hearts, 'heart')} left">${'❤️'.repeat(b.hearts)}${'🖤'.repeat(E.BOSS_HEARTS - b.hearts)}</div><div class="chips"><span class="chip">${Math.min(b.i + (b.phase === 'ask' ? 1 : 0), total)} / ${total}</span>${extra}</div></header>`;
+  if (b.phase === 'over') {
+    const win = b.res.over === 'win';
+    return top('') + `<main class="card stage">${bossSVG(b.right, 200, win)}
+      <p class="shout">${win ? 'YOU CRACKED THE BOSS EGG!' : 'The boss egg rolled away laughing.'}</p>
+      <p class="facts">${win ? `The ${esc(b.label)} boss is beaten for good. +40 🌱 +${E.STARS.boss} ⭐` : `It tricked you on <b>${esc(qText(b.last))}</b>.<br>It will be back tomorrow for a rematch, and the ones you missed will pop up in your next round.`}</p>
+      ${questLine(b.res.quests)}
+      <button class="btn big" data-act="home">${win ? 'Hooray ▶' : 'Next time ▶'}</button><p class="tiny">or press Enter</p></main>`;
+  }
+  const q = b.phase === 'ask' ? b.qs[b.i] : b.last, good = b.phase === 'feedback' && b.res.correct;
+  return top(micBtn() + soundBtn()) + `<main class="card stage"><span class="tag">Boss egg: ${esc(b.label)}</span>
+    <div class="nest">${bossSVG(b.right, 190, false)}</div>
+    <p class="bubble">${esc(b.line)}</p>
+    ${questionHTML(q, good ? 'good' : b.phase === 'ask' ? 'ask' : 'bad')}
+    <p class="tiny">Get through all ${total} with fewer than ${E.BOSS_HEARTS} mistakes. ${hintText(q)}</p>
+    ${Mic.status ? `<p class="tiny warn">${esc(Mic.status)}</p>` : ''}</main>`;
+}
+function vSpeed() {
+  const sp = ui.speed, live = sp.phase === 'ask' || sp.phase === 'flash';
+  const top = `<header class="top"><button class="btn sm" data-act="home">← Home</button><h1>⚡ Speed nest</h1><div class="chips">${sp.phase === 'ready' ? '' : `<span class="chip">Score ${sp.score}</span>`}${live ? micBtn() : ''}${soundBtn()}</div></header>`;
+  if (sp.phase === 'ready') return top + `<main class="card stage"><p class="shout">60 seconds. How many can you get?</p>
+    <p class="facts">Only pets you have already hatched show up here.<br>Your best so far: <b>${save.speedBest}</b></p>
+    <button class="btn big" data-act="speedgo">Start ▶</button><p class="tiny">or press Enter</p></main>`;
+  if (sp.phase === 'over') {
+    const r = sp.res;
+    return top + `<main class="card stage"><p class="shout">${r.best ? 'NEW BEST!' : 'Time is up!'}</p><p class="bigfact">${sp.score}</p>
+      <p class="facts">${r.best ? 'That beats your old record.' : `Your best is ${save.speedBest}.`}<br>${r.seeds || r.stars ? `+${r.seeds} 🌱${r.stars ? ` +${r.stars} ⭐` : ''}` : 'Seeds come from your first dash each day.'}</p>
+      ${questLine(r.quests)}
+      <div class="row" style="justify-content:center;margin:0"><button class="btn big" data-act="speed">Again ▶</button><button class="btn" data-act="home">Home</button></div></main>`;
+  }
+  const left = Math.max(0, sp.end - Date.now());
+  return top + `<main class="card stage"><div class="sbarwrap" role="img" aria-label="Time left"><div id="sbar" style="width:${left / (SPEED_SECS * 10)}%"></div></div>
+    <p class="flash">${sp.phase === 'flash' ? esc(sp.flash) : '&nbsp;'}</p>
+    ${questionHTML(sp.q, sp.phase === 'flash' ? 'bad' : 'ask')}
+    <p class="tiny">${hintText(sp.q)}</p>
+    ${Mic.status ? `<p class="tiny warn">${esc(Mic.status)}</p>` : ''}</main>`;
+}
 function vSummary() {
   const s = ui.sum, st = E.stats(save, Date.now());
-  const show = (ids, stage) => ids.map(id => `<div class="slot">${creatureSVG(id, stage, { size: 84, hat: save.worn[id] })}<b>${esc(spec(id).name)}</b><span class="f">${factText(id, true)}</span></div>`).join('');
+  const show = (ids, stage) => ids.map(id => `<div class="slot">${creatureSVG(id, stage, { size: 84, bed: save.bed, wear: save.worn[id] })}<b>${esc(spec(id).name)}</b><span class="f">${factText(id, true)}</span></div>`).join('');
   const cheer = s.ok === s.asked ? 'A perfect round!' : s.ok >= s.asked * 0.75 ? 'Great hatching!' : 'Good work. Those tricky eggs will come back.';
   return `<header class="top">${logo()}<div class="chips"><span class="chip">🌱 ${save.seeds}</span><span class="chip">🔥 ${plural(st.streak, 'day')} in a row</span></div></header>
-  <section class="card hero"><div><p class="hello">Round done!</p>
-    <p class="lead">${cheer} You got <b>${s.ok} of ${s.asked}</b> right and earned <b>${plural(s.seeds, 'seed')}</b>.</p>
+  ${levelCard()}<section class="card hero"><div><p class="hello">Round done!</p>
+    <p class="lead">${cheer} You got <b>${s.ok} of ${s.asked}</b> right and earned <b>${plural(s.seeds, 'seed')}</b>${s.stars ? ` and <b>${plural(s.stars, 'star')}</b>` : ''}.</p>
     <div class="row" style="margin:0"><button class="btn big" data-act="play">Another round ▶</button><button class="btn" data-act="home">Home</button></div>
     <p class="tiny">${st.grown} of ${st.total} pets are all grown up. Come back tomorrow to check on your eggs.</p></div></section>
+  ${s.quests.length ? `<section class="card"><h2>Quests finished</h2>${questLine(s.quests)}</section>` : ''}
   ${s.grown.length ? `<section class="card"><h2>All grown up this round</h2><div class="grid">${show(s.grown, 4)}</div></section>` : ''}
   ${s.hatched.length ? `<section class="card"><h2>New hatchlings</h2><div class="grid">${show(s.hatched, 3)}</div></section>` : ''}`;
 }
 function vBook() {
   const S = E.SUBJECTS[save.subject];
-  const kinds = save.subject === 'times' ? [['x', 'Times tables']] : [['+', 'Adding'], ['-', 'Subtracting']];
+  const kinds = save.subject === 'times' ? [['x', 'Times tables']] : isSpelling() ? [['w', 'Spelling words']] : [['+', 'Adding'], ['-', 'Subtracting']];
   const sections = kinds.map(([k, title]) => `<section class="card"><h2>${title}</h2><div class="grid">${S.facts.filter(f => f.kind === k).map(f => {
-    const st = save.facts[f.id].s, body = `${creatureSVG(f.id, st, { size: 80, hat: save.worn[f.id] })}${st >= 3 ? `<b>${esc(spec(f.id).name)}</b>` : `<span class="tiny" style="margin:0">${['Cold egg', 'Warm egg', 'Cracking egg'][st]}</span>`}<span class="f">${factText(f.id, st >= 3)}${st >= 3 ? '' : ' = ?'}</span>`;
+    const st = save.facts[f.id].s, body = `${creatureSVG(f.id, st, { size: 80, bed: save.bed, wear: save.worn[f.id] })}${st >= 3 ? `<b>${esc(spec(f.id).name)}</b>` : `<span class="tiny" style="margin:0">${['Cold egg', 'Warm egg', 'Cracking egg'][st]}</span>`}<span class="f">${factText(f.id, st >= 3)}</span>`;
     return st >= 3 ? `<button class="slot s${st}" data-act="pet" data-id="${f.id}">${body}</button>` : `<div class="slot s${st}">${body}</div>`;
   }).join('')}</div></section>`).join('');
   let detail = '';
   if (ui.detail) {
-    const id = ui.detail, st = save.facts[id].s, s = spec(id);
-    const hats = st === 4 ? (save.hats.length ? `<div class="hats"><button class="btn sm ${!save.worn[id] ? 'live' : ''}" data-act="wear" data-hat="">No hat</button>${HATS.filter(h => save.hats.includes(h.id)).map(h => `<button class="btn sm ${save.worn[id] === h.id ? 'live' : ''}" data-act="wear" data-hat="${h.id}">${h.name}</button>`).join('')}</div>` : '<p class="tiny" style="margin-bottom:12px">Buy a hat in the hat shop and it can wear it.</p>') : '<p class="tiny" style="margin-bottom:12px">Hats fit once it is all grown up.</p>';
-    detail = `<div class="veil" data-act="close"><div class="card pop">${creatureSVG(id, st, { size: 180, cls: 'bob', hat: save.worn[id] })}
-      <p class="petname">${esc(s.name)}</p><p class="facts"><b>${factText(id, true)}</b><br>Likes: ${esc(s.hobby)}.<br>Scared of: ${esc(s.fear)}.<br>${st === 4 ? '⭐ All grown up' : '🐣 Hatchling'}</p>${hats}
+    const id = ui.detail, st = save.facts[id].s, s = spec(id), worn = save.worn[id] || {};
+    const pickers = SLOTS.map(([slot, label]) => {
+      const mine = ITEMS.filter(it => it.kind === slot && save.owned.includes(it.id));
+      if (!mine.length) return '';
+      return `<div class="hats"><b>${label}</b><button class="btn sm ${!worn[slot] ? 'live' : ''}" data-act="wear" data-slot="${slot}" data-item="">None</button>${mine.map(it => `<button class="btn sm ${worn[slot] === it.id ? 'live' : ''}" data-act="wear" data-slot="${slot}" data-item="${it.id}">${it.name}</button>`).join('')}</div>`;
+    }).join('');
+    const closet = st === 4 ? (pickers || '<p class="tiny" style="margin-bottom:12px">Buy something in the shop and it can wear it.</p>') : '<p class="tiny" style="margin-bottom:12px">Outfits fit once it is all grown up.</p>';
+    detail = `<div class="veil" data-act="close"><div class="card pop">${creatureSVG(id, st, { size: 180, cls: 'bob', bed: save.bed, wear: worn })}
+      <p class="petname">${esc(s.name)}</p><p class="facts"><b>${factText(id, true)}</b><br>Likes: ${esc(s.hobby)}.<br>Scared of: ${esc(s.fear)}.<br>${st === 4 ? '⭐ All grown up' : '🐣 Hatchling'}</p>${closet}
       <button class="btn" data-act="close">Close</button></div></div>`;
   }
   return backBar('Pet book') + sections + detail;
 }
+const canBuy = it => !save.owned.includes(it.id) && save.seeds >= it.price && E.levelInfo(save.stars).level >= it.lvl;
 function vShop() {
-  const S = E.SUBJECTS[save.subject], model = (S.facts.find(f => save.facts[f.id].s === 4) || S.facts[0]).id;
-  return backBar('Hat shop') + `<section class="card"><p class="lead" style="max-width:none">Spend seeds on hats. Any grown-up pet can wear a hat you own. Pick who wears what in the pet book.</p>
-    <div class="grid">${HATS.map(h => { const own = save.hats.includes(h.id); return `<div class="slot">${creatureSVG(model, 4, { size: 96, hat: h.id })}<b>${h.name}</b>${own ? '<span class="tag">Yours</span>' : `<button class="btn sm" data-act="buy" data-hat="${h.id}" ${save.seeds < h.price ? 'disabled' : ''}>🌱 ${h.price}</button>`}</div>`; }).join('')}</div></section>`;
+  const S = E.SUBJECTS[save.subject], lv = E.levelInfo(save.stars).level;
+  const model = (S.facts.find(f => save.facts[f.id].s === 4) || S.facts.find(f => save.facts[f.id].s === 3) || S.facts[0]).id;
+  const egg = (S.facts.find(f => save.facts[f.id].s <= 2) || S.facts[0]).id;
+  const tabs = SHELVES.map(([k, label]) => `<button class="btn sm ${ui.shopTab === k ? 'live' : ''}" data-act="tab" data-tab="${k}">${label}</button>`).join('');
+  const items = ITEMS.filter(it => it.kind === ui.shopTab).map(it => {
+    const own = save.owned.includes(it.id);
+    const art = it.kind === 'bed' ? creatureSVG(egg, 1, { size: 96, bed: it.id }) : creatureSVG(model, 4, { size: 96, wear: { [it.kind]: it.id } });
+    const action = own ? (it.kind === 'bed' ? `<button class="btn sm ${save.bed === it.id ? 'live' : ''}" data-act="usebed" data-item="${it.id}">${save.bed === it.id ? 'In use' : 'Use it'}</button>` : '<span class="tag">Yours</span>')
+      : lv < it.lvl ? `<span class="tag lock">🔒 Level ${it.lvl}</span>`
+      : `<button class="btn sm" data-act="buy" data-item="${it.id}" ${save.seeds < it.price ? 'disabled' : ''}>🌱 ${it.price}</button>`;
+    return `<div class="slot">${art}<b>${it.name}</b>${action}</div>`;
+  }).join('');
+  const blurb = ui.shopTab === 'bed' ? 'Buy a bed and every egg in your hatchery sleeps in it.' : 'A grown-up pet can wear one hat, one face thing, one outfit and one bag. Dress your pets in the pet book.';
+  return backBar('Shop') + `<div class="row" style="margin-bottom:14px">${tabs}</div><section class="card"><p class="lead" style="max-width:none">${blurb}</p><div class="grid">${items}</div></section>`;
 }
 function vGrownups() {
   const now = Date.now(), st = E.stats(save, now), S = E.SUBJECTS[save.subject];
   const kinds = save.subject === 'times' ? [['x', '×']] : [['+', '+'], ['-', '−']];
   const nums = Array.from({ length: 10 }, (_, i) => i + 1);
-  const grids = kinds.map(([k, sym]) => `<div><table class="pgrid" aria-label="Progress for ${sym}"><tr><th>${sym}</th>${nums.map(n => `<th>${n}</th>`).join('')}</tr>${nums.map(a => `<tr><th>${a}</th>${nums.map(b => { const id = Math.min(a, b) + k + Math.max(a, b), f = save.facts[id]; return `<td class="s${f.s}c" title="${factText(id, true)}: right ${f.r}, wrong ${f.w}"></td>`; }).join('')}</tr>`).join('')}</table></div>`).join('');
+  const grids = isSpelling() ? `<div class="words">${S.facts.map(f => `<span class="s${save.facts[f.id].s}c" title="right ${save.facts[f.id].r}, wrong ${save.facts[f.id].w}">${f.word}</span>`).join('')}</div>` : kinds.map(([k, sym]) => `<div><table class="pgrid" aria-label="Progress for ${sym}"><tr><th>${sym}</th>${nums.map(n => `<th>${n}</th>`).join('')}</tr>${nums.map(a => `<tr><th>${a}</th>${nums.map(b => { const id = Math.min(a, b) + k + Math.max(a, b), f = save.facts[id]; return `<td class="s${f.s}c" title="${factText(id, true)}: right ${f.r}, wrong ${f.w}"></td>`; }).join('')}</tr>`).join('')}</table></div>`).join('');
   const days = Object.keys(save.days).sort().reverse().slice(0, 14);
   const log = days.length ? `<table class="log"><tr><th>Day</th><th>Rounds</th><th>Questions</th><th>Right</th><th>Hatched</th><th>Memorized</th></tr>${days.map(k => { const d = save.days[k]; return `<tr><td>${k}</td><td>${d.rounds}</td><td>${d.q}</td><td>${d.q ? Math.round(d.ok / d.q * 100) : 0}%</td><td>${d.hatched}</td><td>${d.grown}</td></tr>`; }).join('')}</table>` : '<p class="tiny">No rounds played yet.</p>';
   const code = btoa(unescape(encodeURIComponent(JSON.stringify(root))));
   return backBar('For grown-ups') + `
   <section class="card"><h2>${esc(save.name)}: ${S.name}</h2>
     <p><b>${st.grown} of ${st.total}</b> facts memorized. ${st.by[3]} nearly there, ${st.by[1] + st.by[2]} being learned, ${st.by[0]} not started. Played on ${plural(st.days, 'day')}; ${st.q ? Math.round(st.ok / st.q * 100) : 0}% right overall.</p>
+    <p style="margin-top:8px">Level ${E.levelInfo(save.stars).level} with ${plural(save.stars, 'star')}. Boss eggs beaten: ${S.groups.filter(g => save.bosses[g.key] && save.bosses[g.key].won).length} of ${S.groups.length}. Speed nest best: ${save.speedBest}.</p>
     <div class="legend" style="margin-top:12px"><span><i class="s0c"></i>Not started</span><span><i class="s1c"></i>Just met</span><span><i class="s2c"></i>Learning</span><span><i class="s3c"></i>Nearly there</span><span><i class="s4c"></i>Memorized</span></div>
     <div class="gridwrap">${grids}</div>
     <p>${st.tricky.length ? 'Trickiest so far: ' + st.tricky.map(id => `<b>${factText(id, true)}</b> (missed ${save.facts[id].w}×)`).join(', ') + '.' : 'No missed facts yet.'}</p>
   </section>
   <section class="card"><h2>Day by day</h2>${log}</section>
   <section class="card"><h2>How it works</h2>
-    <p>A fact counts as memorized when it has been answered correctly on separate days, with the last answer given in under ${E.SOLID_MS / 1000} seconds. Missed facts come back sooner. Memorized facts are checked again after a week, then every three weeks. One round is ${E.ROUND_LEN} questions. A round a day works better than a long session once a week.</p>
+    <p>A fact counts as memorized when it has been answered correctly on separate days, with the last answer given quickly (under ${E.SOLID_MS / 1000} seconds for math, a little longer for spelling). Stars and levels only come from eggs moving forward, quests and boss eggs. Boss eggs and the speed nest never count toward memorizing; a miss there just brings that fact back in the next round. Missed facts come back sooner. Memorized facts are checked again after a week, then every three weeks. One round is ${E.ROUND_LEN} questions. A round a day works better than a long session once a week.</p>
     <p class="tiny">The microphone uses the browser's own speech recognition. In Chrome that sends your child's voice to Google to be turned into text. This game keeps no recordings.</p></section>
   <section class="card"><h2>Back up or move progress</h2>
     <p class="tiny" style="margin:0 0 8px">Progress lives in this browser on this computer. Copy this code somewhere safe to back it up (it covers every player). Paste a code and press Load to restore.</p>
@@ -802,17 +1278,17 @@ function vCert() {
   <section class="card cert"><p class="tag">The Odd Egg Hatchery</p><h2>Certificate of Egg-cellence</h2><p>This proves that</p><p class="who2">${esc(save.name)}</p>
     <p style="font-size:1.25rem;max-width:34ch;margin:0 auto">has memorized ${S.goal}, and raised ${st.total} very odd pets along the way.</p>
     <p class="tiny">${when} · ${plural(st.days, 'day')} of hatching · ${st.q} questions answered</p>
-    <div class="parade" style="margin-top:18px">${S.facts.slice(0, 55).map(f => creatureSVG(f.id, 4, { size: 54, hat: save.worn[f.id] })).join('')}</div></section>`;
+    <div class="parade" style="margin-top:18px">${S.facts.slice(0, 55).map(f => creatureSVG(f.id, 4, { size: 54, bed: save.bed, wear: save.worn[f.id] })).join('')}</div></section>`;
 }
 function render() {
-  const views = { welcome: vWelcome, who: vWho, home: vHome, round: vRound, summary: vSummary, book: vBook, shop: vShop, grown: vGrownups, cert: vCert };
+  const views = { welcome: vWelcome, who: vWho, home: vHome, round: vRound, summary: vSummary, book: vBook, shop: vShop, grown: vGrownups, cert: vCert, boss: vBoss, speed: vSpeed };
   app.innerHTML = views[ui.screen]();
   const auto = app.querySelector('[autofocus]');
   if (auto) auto.focus();
 }
 
 /* ---------- buttons and keys ---------- */
-function go(screen) { if (ui.screen === 'round') leaveRound(); ui.screen = screen; ui.detail = null; ui.arm = ''; ui.note = ''; render(); }
+function go(screen) { if (inGame()) leaveGame(); ui.screen = screen; ui.detail = null; ui.arm = ''; ui.note = ''; render(); }
 const ACTS = {
   play: () => startRound(),
   home: () => go('home'), book: () => go('book'), shop: () => go('shop'), grown: () => go('grown'), cert: () => go('cert'), who: () => go('who'),
@@ -823,8 +1299,15 @@ const ACTS = {
   mic: () => { if (Mic.on) { Mic.stop(); save.mic = false; } else { save.mic = true; Mic.status = ''; Mic.start(); } persist(); render(); },
   pet: d => { ui.detail = d.id; render(); },
   close: () => { ui.detail = null; render(); },
-  wear: d => { if (d.hat) save.worn[ui.detail] = d.hat; else delete save.worn[ui.detail]; persist(); render(); },
-  buy: d => { const h = HATS.find(x => x.id === d.hat); if (h && save.seeds >= h.price && !save.hats.includes(h.id)) { save.seeds -= h.price; save.hats.push(h.id); persist(); sfx('buy'); render(); } },
+  wear: d => { const w = save.worn[ui.detail] || (save.worn[ui.detail] = {}); if (d.item) w[d.slot] = d.item; else delete w[d.slot]; persist(); render(); },
+  buy: d => { const it = ITEMS.find(x => x.id === d.item); if (it && canBuy(it)) { save.seeds -= it.price; save.owned.push(it.id); if (it.kind === 'bed') save.bed = it.id; persist(); sfx('buy'); render(); } },
+  tab: d => { ui.shopTab = d.tab; render(); },
+  usebed: d => { save.bed = save.bed === d.item ? '' : d.item; persist(); render(); },
+  levelup: () => { const lv = E.levelInfo(save.stars).level; save.seeds += 20 * Math.max(0, lv - save.seenLevel); save.seenLevel = lv; persist(); sfx('grown'); render(); },
+  boss: d => startBoss(d.key),
+  speed: () => { leaveGame(); ui.speed = { phase: 'ready', score: 0 }; ui.screen = 'speed'; render(); },
+  speedgo: () => speedStart(),
+  say: () => sayQ(askingNow() || ui.q),
   print: () => window.print(),
   copy: () => { const t = document.querySelector('#code'); t.select(); const done = ok => { ui.note = ok ? 'Copied.' : 'Select the code and copy it by hand.'; render(); }; if (navigator.clipboard) navigator.clipboard.writeText(t.value).then(() => done(true), () => done(false)); else done(false); },
   loadcode: () => {
@@ -861,18 +1344,25 @@ document.addEventListener('keydown', e => {
   const el = e.target instanceof Element ? e.target : null;
   if (el && el.closest('input, textarea')) return;
   if (el && el.closest('button') && (e.key === 'Enter' || e.key === ' ')) return;
-  if (ui.screen === 'round') {
-    if (ui.overlay) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); closeOverlay(); } return; }
-    if (ui.phase === 'ask') {
-      if (/^\d$/.test(e.key)) { if (ui.typed.length < 3) ui.typed += e.key; }
-      else if (e.key === 'Backspace') { e.preventDefault(); ui.typed = ui.typed.slice(0, -1); }
-      else if (e.key === 'Enter') { submit(); return; }
-      else return;
-      const box = document.querySelector('#box');
-      if (box) box.textContent = ui.typed;
-    } else if (e.key === 'Enter') nextQ();
-  } else if (e.key === 'Enter' && (ui.screen === 'home' || ui.screen === 'summary')) startRound();
-  else if (e.key === 'Escape' && ui.detail) ACTS.close();
+  const q = askingNow();
+  if (q) {
+    const word = q.kind === 'w';
+    if (word ? /^[a-zA-Z]$/.test(e.key) : /^\d$/.test(e.key)) { if (ui.typed.length < (word ? 18 : 3)) ui.typed += e.key.toLowerCase(); }
+    else if (e.key === 'Backspace') { e.preventDefault(); ui.typed = ui.typed.slice(0, -1); }
+    else if (e.key === 'Enter') { submitAny(); return; }
+    else if (e.key === ' ' && word) { e.preventDefault(); sayQ(q); return; }
+    else return;
+    const box = document.querySelector('#box');
+    if (box) box.textContent = ui.typed;
+    return;
+  }
+  if (e.key === 'Escape' && ui.detail) { ACTS.close(); return; }
+  if (ui.screen === 'round' && ui.overlay) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); closeOverlay(); } return; }
+  if (e.key !== 'Enter' || Date.now() < ui.lock) return;
+  if (ui.screen === 'round') { if (ui.phase === 'feedback') nextQ(); }
+  else if (ui.screen === 'boss') { if (ui.boss.phase === 'feedback') bossNext(); else if (ui.boss.phase === 'over') go('home'); }
+  else if (ui.screen === 'speed') { if (ui.speed.phase === 'ready') speedStart(); else if (ui.speed.phase === 'over') go('home'); }
+  else if (ui.screen === 'home' || ui.screen === 'summary') startRound();
 });
 window.__hatchery = { ui, Mic, onVoice, get save() { return save; } };
 render();

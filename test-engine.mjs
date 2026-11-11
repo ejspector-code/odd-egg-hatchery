@@ -15,7 +15,14 @@ const seeded = seed => () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 429
 test('fact counts and unique ids', () => {
   assert.equal(E.SUBJECTS.times.facts.length, 55);
   assert.equal(E.SUBJECTS.plusminus.facts.length, 110);
-  for (const k of ['times', 'plusminus']) {
+  for (const k of ['spell3', 'spell5']) {
+    const words = E.SUBJECTS[k].facts.map(f => f.word);
+    assert.equal(words.length, 60, k);
+    assert.equal(new Set(words).size, 60, k + ' has a repeated word');
+    for (const w of words) assert.match(w, /^[a-z]{3,16}$/, w);
+    assert.equal(E.SUBJECTS[k].groups.length, 6);
+  }
+  for (const k of Object.keys(E.SUBJECTS)) {
     const ids = E.SUBJECTS[k].facts.map(f => f.id);
     assert.equal(new Set(ids).size, ids.length);
     for (const g of E.SUBJECTS[k].groups) assert.equal(g.ids.length, 10, g.key);
@@ -92,7 +99,7 @@ function simulate(subject, { knows, ms = 2000, roundsPerDay = 1, maxDays = 400, 
   return { days: Infinity, save };
 }
 
-for (const subject of ['times', 'plusminus']) {
+for (const subject of Object.keys(E.SUBJECTS)) {
   const total = E.SUBJECTS[subject].facts.length;
 
   test(`${subject}: a child who already knows everything finishes fast`, () => {
@@ -113,7 +120,7 @@ for (const subject of ['times', 'plusminus']) {
   });
 
   test(`${subject}: right but slow answers never count as memorised`, () => {
-    const { days, save } = simulate(subject, { knows: () => true, ms: 12000, roundsPerDay: 3, maxDays: 30 });
+    const { days, save } = simulate(subject, { knows: () => true, ms: 60000, roundsPerDay: 3, maxDays: 30 });
     assert.equal(days, Infinity);
     assert.equal(E.stats(save, Date.now()).grown, 0);
   });
@@ -172,6 +179,147 @@ test('streak counts days in a row', () => {
   assert.equal(E.stats(save, now).streak, 3);
   delete save.days[E.dateKey(now)];
   assert.equal(E.stats(save, now).streak, 2, 'yesterday still counts until today is over');
+});
+
+test('spelling answers ignore capitals and spaces, and get more time per letter', () => {
+  assert.equal(E.same(' Because ', 'because'), true);
+  assert.equal(E.same('becuase', 'because'), false);
+  assert.equal(E.same('056', 56), true);
+  assert.equal(E.same('57', 56), false);
+  const f = E.SUBJECTS.spell3.byId['w3:because'], q = Object.assign({ id: f.id, kind: 'w' }, E.pose(f, true));
+  assert.equal(q.ans, 'because');
+  assert.ok(E.limits(q).solid > E.SOLID_MS);
+  assert.equal(E.limits({ kind: 'x', ans: 56 }).solid, E.SOLID_MS);
+  let now = new Date(2026, 0, 5, 16).getTime();
+  const save = E.newSave(now, 'spell3', 'T'), round = E.startRound();
+  const res = E.answer(save, round, { ...q, mode: 'new', stage: 0 }, 'becuase', 3000, now);
+  assert.equal(res.correct, false); assert.equal(res.event, 'teach');
+});
+
+test('levels: stars needed climb, and level 20 is the top', () => {
+  assert.equal(E.levelInfo(0).level, 1);
+  assert.equal(E.levelInfo(5).level, 1);
+  assert.equal(E.levelInfo(6).level, 2);
+  assert.deepEqual(E.levelInfo(8), { level: 2, into: 2, need: 12, max: false });
+  assert.equal(E.levelInfo(E.starsFor(20) - 1).level, 19);
+  assert.deepEqual(E.levelInfo(99999), { level: 20, into: 99999 - E.starsFor(20), need: 0, max: true });
+});
+
+test('stars come from eggs moving forward, not from bonus practice', () => {
+  let now = new Date(2026, 0, 5, 16).getTime();
+  const save = E.newSave(now, 'times', 'T'), round = E.startRound();
+  const q = { id: '2x3', kind: 'x', mode: 'new', stage: 0, x: 2, op: '×', y: 3, ans: 6 };
+  const placed = E.answer(save, round, q, 6, 1000, now);
+  assert.equal(placed.event, 'placed'); assert.equal(placed.stars, E.STARS.hatched);
+  const before = save.stars;
+  const practice = E.answer(save, round, { ...q, mode: 'practice', stage: 3 }, 6, 1000, now);
+  assert.equal(practice.event, 'practice'); assert.equal(practice.stars, 0);
+  const questStars = practice.quests.filter(x => x.type !== 'all').length * E.STARS.quest;
+  assert.equal(save.stars, before + questStars);
+  now = E.dayStart(now, 1) + 9 * HOUR;
+  const grown = E.answer(save, E.startRound(), { ...q, mode: 'due', stage: 3 }, 6, 1000, now);
+  assert.equal(grown.event, 'grown'); assert.equal(grown.stars, E.STARS.grown);
+});
+
+test('daily quests: same list all day, new list tomorrow, rewards paid once', () => {
+  let now = new Date(2026, 0, 5, 16).getTime();
+  const save = E.newSave(now, 'times', 'T');
+  const first = E.ensureQuests(save, now);
+  assert.equal(first.list.length, 3);
+  assert.equal(E.ensureQuests(save, now + HOUR), first);
+  const twin = E.newSave(now, 'times', 'T'); twin.id = save.id;
+  assert.deepEqual(E.ensureQuests(twin, now).list, first.list);
+  for (const q of first.list) assert.ok(['rounds', 'right', 'streak', 'quick', 'warm'].includes(q.type), q.type + ' is not doable on day one');
+  save.quests = { day: E.dateKey(now), run: 0, bonus: false, list: [{ type: 'right', goal: 2, n: 0, done: false }, { type: 'streak', goal: 2, n: 0, done: false }, { type: 'rounds', goal: 1, n: 0, done: false }] };
+  const round = E.startRound(), q = { id: '2x3', kind: 'x', mode: 'practice', stage: 0, x: 2, op: '×', y: 3, ans: 6 };
+  assert.deepEqual(E.answer(save, round, q, 6, 9000, now).quests, []);
+  assert.equal(E.answer(save, round, q, 7, 9000, now).correct, false);
+  assert.equal(save.quests.run, 0, 'a miss resets the in-a-row count');
+  const seeds = save.seeds, stars = save.stars;
+  const hit = E.answer(save, round, q, 6, 9000, now).quests;
+  assert.deepEqual(hit, [{ type: 'right', goal: 2 }]);
+  assert.deepEqual(E.answer(save, round, q, 6, 9000, now).quests, [{ type: 'streak', goal: 2 }]);
+  assert.deepEqual(E.finishRound(save, round, now), [{ type: 'rounds', goal: 1 }, { type: 'all', goal: 3 }]);
+  assert.equal(save.seeds, seeds + 2 /* two practice answers */ + 15 * 3 + 25);
+  assert.equal(save.stars, stars + E.STARS.quest * 3);
+  assert.deepEqual(E.finishRound(save, E.startRound(), now), [], 'nothing is paid twice');
+  now = E.dayStart(now, 1) + 9 * HOUR;
+  assert.notEqual(E.ensureQuests(save, now).day, first.day);
+  assert.equal(save.quests.list.every(x => !x.done), true);
+});
+
+test('boss eggs: appear when a set has hatched, one try a day, never move eggs forward', () => {
+  let now = new Date(2026, 0, 5, 16).getTime();
+  const save = E.newSave(now, 'times', 'T');
+  assert.deepEqual(E.bossList(save, now), []);
+  const g = E.SUBJECTS.times.groups.find(x => x.key === 'x7');
+  for (const id of g.ids) save.facts[id] = { s: 3, due: E.dayStart(now, 2), seen: 1, r: 2, w: 0, last: 0 };
+  assert.deepEqual(E.bossList(save, now), [{ key: 'x7', label: '×7', canTry: true }]);
+  let boss = E.startBoss(save, 'x7', now, seeded(3));
+  assert.equal(boss.qs.length, 10);
+  for (const q of boss.qs) assert.ok(q.x === 7 || q.y === 7);
+  assert.equal(E.bossList(save, now)[0].canTry, false);
+  let res;
+  for (let i = 0; i < 3; i++) res = E.bossAnswer(save, boss, boss.qs[boss.i].ans + 1, now);
+  assert.equal(res.over, 'lose');
+  assert.equal(g.ids.filter(id => save.facts[id].due === now).length, 3, 'the three missed facts are due again');
+  assert.ok(g.ids.every(id => save.facts[id].s === 3), 'no egg moved');
+  assert.ok(!save.bosses.x7.won);
+  now = E.dayStart(now, 1) + 9 * HOUR;
+  assert.equal(E.bossList(save, now)[0].canTry, true);
+  boss = E.startBoss(save, 'x7', now, seeded(4));
+  const seeds = save.seeds, stars = save.stars;
+  E.bossAnswer(save, boss, boss.qs[boss.i].ans + 1, now);
+  for (let i = 0; i < 9; i++) res = E.bossAnswer(save, boss, boss.qs[boss.i].ans, now);
+  assert.equal(res.over, 'win');
+  assert.equal(save.seeds - seeds, 9 + 40 + (res.quests.filter(x => x.type !== 'all').length * 15) + (res.quests.some(x => x.type === 'all') ? 25 : 0));
+  assert.ok(save.stars - stars >= E.STARS.boss);
+  assert.deepEqual(E.bossList(save, now), [], 'a beaten boss does not come back');
+  assert.ok(g.ids.every(id => save.facts[id].s === 3));
+});
+
+test('speed nest: opens at level 3 with 8 hatched pets, pays seeds once a day', () => {
+  const now = new Date(2026, 0, 5, 16).getTime();
+  const save = E.newSave(now, 'plusminus', 'T');
+  assert.equal(E.speedOpen(save), false);
+  const ids = E.SUBJECTS.plusminus.facts.slice(0, 8).map(f => f.id);
+  for (const id of ids) save.facts[id].s = 3;
+  assert.equal(E.speedOpen(save), false, 'still level 1');
+  save.stars = E.starsFor(3);
+  assert.equal(E.speedOpen(save), true);
+  const rnd = seeded(9);
+  let last = null;
+  for (let i = 0; i < 200; i++) { const q = E.speedQuestion(save, last, rnd); assert.ok(ids.includes(q.id)); assert.notEqual(q.id, last); last = q.id; }
+  save.quests = { day: E.dateKey(now), run: 0, bonus: true, list: [] };
+  const a = E.speedFinish(save, 12, now);
+  assert.deepEqual([a.best, a.seeds, a.stars], [true, 12, E.STARS.best]);
+  const b = E.speedFinish(save, 45, now);
+  assert.deepEqual([b.best, b.seeds], [true, 0], 'second dash of the day pays no seeds');
+  const c = E.speedFinish(save, 20, now);
+  assert.deepEqual([c.best, c.seeds, c.stars], [false, 0, 0]);
+  assert.equal(save.speedBest, 45);
+  const d = E.speedFinish(save, 99, E.dayStart(now, 1) + HOUR);
+  assert.equal(d.seeds, 30, 'capped');
+});
+
+test('a save from the first version still loads, keeps its hats, and gets stars for past work', () => {
+  const now = new Date(2026, 0, 5, 16).getTime();
+  const old = { id: 'p1', name: 'Ada', subject: 'times', created: 1, seeds: 29, hats: ['party', 'fish'], worn: { '1x3': 'fish' }, days: { '2026-01-04': { q: 12, ok: 10, rounds: 1, hatched: 5, grown: 0 } },
+    badges: [], done: 0, sound: true, mic: false, facts: { '1x1': { s: 3, due: 5, seen: 1, r: 2, w: 0, last: 1 }, '1x3': { s: 4, due: 5, seen: 1, r: 3, w: 0, last: 1 }, '1x8': { s: 2, due: 5, seen: 1, r: 2, w: 1, last: 1 } } };
+  const p = E.repair(JSON.parse(JSON.stringify(old)), now);
+  assert.deepEqual(p.owned, ['party', 'fish']);
+  assert.equal('hats' in p, false);
+  assert.deepEqual(p.worn, { '1x3': { hat: 'fish' } });
+  assert.equal(p.stars, E.STARS.hatched * 2 + E.STARS.grown);
+  assert.equal(E.levelInfo(p.stars).level, 2);
+  assert.deepEqual([p.seeds, p.seenLevel, p.bed, p.speedBest, p.quests], [29, 1, '', 0, null]);
+  assert.deepEqual(p.bosses, {});
+  assert.equal(p.facts['1x8'].s, 2); assert.equal(p.facts['1x8'].w, 1);
+  assert.equal(p.days['2026-01-04'].q, 12);
+  const again = E.repair(JSON.parse(JSON.stringify(p)), now);
+  assert.deepEqual(again, p, 'loading twice changes nothing');
+  const round = E.startRound(), q = E.nextQuestion(p, round, now);
+  assert.ok(q && E.answer(p, round, q, q.ans, 1000, now).correct);
 });
 
 console.log(`\n${passed} tests passed`);
