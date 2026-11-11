@@ -1,0 +1,882 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Odd Egg Hatchery</title>
+<style>
+:root{--ink:#3B2A4A;--cream:#FFF6E5;--paper:#fff;--coral:#FF7A59;--teal:#2BB5A0;--sun:#FFC93C;--lav:#B79CFF;--sky:#5BC0EB;--good:#1F8A5B;--bad:#C8443F;--muted:#6F5F7D}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{font-family:"Arial Rounded MT Bold",ui-rounded,"Nunito","Trebuchet MS",system-ui,sans-serif;color:var(--ink);background-color:var(--cream);
+  background-image:radial-gradient(circle at 10% 16%,#FFE3B8 0 13%,transparent 13.5%),radial-gradient(circle at 90% 10%,#D9F3EC 0 11%,transparent 11.5%),radial-gradient(circle at 84% 88%,#E9E0FF 0 15%,transparent 15.5%),radial-gradient(circle at 6% 90%,#FFDCD2 0 10%,transparent 10.5%);
+  background-attachment:fixed;-webkit-font-smoothing:antialiased;line-height:1.35}
+#app{max-width:980px;margin:0 auto;padding:18px 18px 60px}
+h1,h2,h3,p{margin:0}
+h1{font-size:1.5rem;letter-spacing:.01em}
+h2{font-size:1.35rem;margin-bottom:12px}
+button{font:inherit;color:inherit}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.logo{display:flex;align-items:center;gap:8px}
+.chips{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.chip{background:var(--paper);border:3px solid var(--ink);border-radius:999px;padding:5px 12px;font-size:1rem;white-space:nowrap}
+.card{background:var(--paper);border:3px solid var(--ink);border-radius:24px;box-shadow:6px 6px 0 var(--ink);padding:22px;margin-bottom:22px}
+.btn{background:var(--paper);border:3px solid var(--ink);border-radius:16px;box-shadow:0 5px 0 var(--ink);padding:.6em 1.1em;font-size:1.05rem;cursor:pointer;transition:transform .08s,box-shadow .08s}
+.btn:hover{background:#FFF1CC}
+.btn:active{transform:translateY(4px);box-shadow:0 1px 0 var(--ink)}
+.btn:focus-visible,.pcard:focus-visible,.slot:focus-visible{outline:4px solid var(--sky);outline-offset:3px}
+.btn.big{font-size:1.5rem;background:var(--sun);padding:.55em 1.3em}
+.btn.big:hover{background:#FFD765}
+.btn.sm{font-size:.95rem;padding:.35em .8em;border-radius:12px;box-shadow:0 3px 0 var(--ink)}
+.btn.live{background:#C9F2E8}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px}
+.tiny{font-size:.9rem;color:var(--muted);margin-top:8px}
+.warn{color:var(--bad)}
+.hero{display:flex;align-items:center;justify-content:space-between;gap:20px;background:#FFFBF2}
+.hello{font-size:2rem}
+.lead{font-size:1.15rem;margin:6px 0 18px;max-width:30ch}
+.heroart{flex:none}
+.bar{height:26px;border:3px solid var(--ink);border-radius:999px;background:#F1ECF5;overflow:hidden}
+.bar i{display:block;height:100%;background:repeating-linear-gradient(45deg,var(--teal) 0 14px,#49C7B3 14px 28px);border-right:3px solid var(--ink);min-width:0}
+.bar i[style="width:0%"]{border-right:0}
+.stages{display:flex;gap:16px;flex-wrap:wrap;margin:12px 0 4px;font-size:1rem}
+.stages b{font-size:1.2rem}
+.tables{display:grid;grid-template-columns:repeat(10,1fr);gap:8px;margin-top:14px}
+.tb{border:3px solid var(--ink);border-radius:14px;text-align:center;padding:6px 2px;background:#F6F2FA;font-size:.9rem}
+.tb b{display:block;font-size:1.1rem}
+.tb.done{background:var(--sun)}
+.parade{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:8px}
+.who{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px}
+.pcard{display:flex;flex-direction:column;align-items:center;gap:4px;background:#FFFBF2;border:3px solid var(--ink);border-radius:20px;box-shadow:0 5px 0 var(--ink);padding:16px;cursor:pointer;font-size:1rem}
+.pcard b{font-size:1.4rem}
+.pcard:hover{background:#FFF1CC}
+.pcard.add{justify-content:center;border-style:dashed;min-height:200px}
+.plus{font-size:3rem;line-height:1}
+.form{display:flex;flex-direction:column;gap:16px;max-width:520px}
+.form label{font-size:1.1rem}
+.form input[type=text]{font:inherit;font-size:1.4rem;padding:.4em .6em;border:3px solid var(--ink);border-radius:14px;width:100%;margin-top:6px;background:#fff;color:var(--ink)}
+.pick{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.pick label{display:block;border:3px solid var(--ink);border-radius:16px;padding:12px;cursor:pointer;background:#fff}
+.pick input{position:absolute;opacity:0}
+.pick label:has(input:checked){background:var(--sun);box-shadow:0 4px 0 var(--ink)}
+.pick label:has(input:focus-visible){outline:4px solid var(--sky);outline-offset:3px}
+.pick b{display:block;font-size:1.2rem}
+.dots{display:flex;gap:6px;align-items:center}
+.dots i{width:14px;height:14px;border-radius:50%;border:3px solid var(--ink);background:#fff}
+.dots i.on{background:var(--teal)}
+.dots i.cur{background:var(--sun);transform:scale(1.25)}
+.stage{text-align:center;padding:26px 18px 30px;background:#FFFBF2}
+.nest{height:250px;display:flex;align-items:flex-end;justify-content:center}
+.bubble{display:inline-block;background:#fff;border:3px solid var(--ink);border-radius:18px;padding:8px 16px;margin:14px auto 8px;font-size:1.15rem;max-width:52ch}
+.q{font-size:clamp(3rem,9vw,5.2rem);display:flex;gap:.28em;align-items:center;justify-content:center;line-height:1.1}
+.q .op{color:var(--coral)}
+.minus{display:inline-block;width:.5em;height:.13em;border-radius:.07em;background:currentColor;vertical-align:.28em}
+.box{display:inline-block;min-width:2.3ch;padding:0 .18em;border:4px dashed var(--ink);border-radius:18px;background:#fff;min-height:1.15em;text-align:center}
+.box.ask::after{content:"";display:inline-block;width:.07em;height:.8em;background:var(--ink);margin-left:.04em;vertical-align:-.06em;animation:blink 1s steps(2) infinite}
+.box.good{border-style:solid;background:#D8F5E7;color:var(--good)}
+.tag{display:inline-block;background:var(--lav);border:3px solid var(--ink);border-radius:999px;padding:2px 12px;font-size:.9rem;margin-bottom:6px}
+.veil{position:fixed;inset:0;background:rgba(59,42,74,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:10;overflow:auto}
+.veil .card{max-width:560px;width:100%;text-align:center;margin:auto}
+.pop{animation:pop .28s cubic-bezier(.2,1.5,.4,1) both}
+.bigfact{font-size:clamp(2.4rem,7vw,3.6rem);margin:6px 0 10px}
+.bigfact b{color:var(--good)}
+.trick{background:#FFF4CF;border:3px solid var(--ink);border-radius:16px;padding:10px 14px;margin:12px 0;font-size:1.1rem;text-align:left}
+.chain{font-size:1.05rem;color:var(--muted);margin-bottom:14px}
+.chain b{color:var(--ink)}
+.shout{font-size:2rem;margin-bottom:4px}
+.petname{font-size:1.6rem;margin-top:4px}
+.facts{font-size:1.05rem;margin:8px 0 14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:12px}
+.slot{background:#FFFBF2;border:3px solid var(--ink);border-radius:18px;padding:8px 6px 10px;text-align:center;font-size:.92rem;display:flex;flex-direction:column;align-items:center;gap:2px}
+button.slot{cursor:pointer;box-shadow:0 4px 0 var(--ink)}
+button.slot:hover{background:#FFF1CC}
+.slot .f{font-size:1.05rem}
+.slot.s0{background:#EEF3F7}
+.slot.s4{background:#DDF6EF}
+.hats{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:10px 0 16px}
+.pgrid{border-collapse:separate;border-spacing:3px;margin:8px 0 14px}
+.pgrid th{font-size:.85rem;width:30px;height:24px}
+.pgrid td{width:30px;height:30px;border-radius:7px;border:2px solid var(--ink);font-size:.72rem;text-align:center}
+.s0c{background:#E6EDF3}.s1c{background:#FFE2A8}.s2c{background:#FFC27A}.s3c{background:#9FE0D2}.s4c{background:#2BB5A0}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:.9rem;margin-bottom:8px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.legend i{width:16px;height:16px;border-radius:5px;border:2px solid var(--ink);display:inline-block}
+.gridwrap{display:flex;gap:28px;flex-wrap:wrap}
+table.log{border-collapse:collapse;width:100%;font-size:.95rem}
+table.log th,table.log td{text-align:left;padding:6px 8px;border-bottom:2px solid #E8E0EE}
+textarea{font:inherit;font-size:.8rem;font-family:ui-monospace,Menlo,monospace;width:100%;height:84px;border:3px solid var(--ink);border-radius:12px;padding:8px;color:var(--ink);background:#fff}
+.cert{text-align:center;padding:36px 24px;background:#FFFBF2}
+.cert h2{font-size:2.2rem}
+.cert .who2{font-size:2.6rem;margin:10px 0;color:var(--coral)}
+svg.pet{overflow:visible;flex:none}
+.wobble{animation:wobble 1.6s ease-in-out infinite;transform-origin:50% 90%}
+.st0.wobble{animation-duration:3.4s}
+.bob{animation:bob 1.8s ease-in-out infinite}
+.spin{animation:spin .5s linear infinite;transform-box:fill-box;transform-origin:center}
+@keyframes wobble{0%,100%{transform:rotate(-4deg)}50%{transform:rotate(4deg)}}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+@keyframes pop{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes blink{50%{opacity:0}}
+@keyframes spin{0%,100%{transform:scaleX(1)}50%{transform:scaleX(.15)}}
+@media (max-width:640px){.hero{flex-direction:column;text-align:center}.lead{margin-inline:auto}.tables{grid-template-columns:repeat(5,1fr)}.pick{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media print{.noprint{display:none!important}body{background:#fff}.card{box-shadow:none}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script id="engine">
+/* The learning engine. No screen code in here, so it can be tested on its own. */
+const Engine = (() => {
+  'use strict';
+  const N = 10;
+  const ROUND_LEN = 12;      // questions in one round
+  const MAX_LEARNERS = 3;    // brand-new facts taught per round
+  const MAX_SHAKY = 10;      // stop adding new facts while this many are still wobbly
+  const FAST_MS = 5000;      // first-try answers this quick count as "already known"
+  const SOLID_MS = 8000;     // a fact only counts as memorized if answered this quick
+  const QUICK_MS = 3000;     // bonus seed
+  const TABLE_ORDER = [1, 10, 2, 5, 3, 4, 9, 6, 7, 8];
+  const addTier = (a, b) => (a <= 2 || b === 10) ? 0 : a === b ? 1 : a + b <= 10 ? 2 : b - a === 1 ? 3 : 4;
+
+  const NAMES = ['Wobble', 'Noodle', 'Pickle', 'Snorf', 'Blorp', 'Fizz', 'Mumble', 'Waffle', 'Bongo', 'Sprocket', 'Nugget',
+    'Doodle', 'Squish', 'Toot', 'Gizmo', 'Bumble', 'Crumpet', 'Zonk', 'Flapjack', 'Snoot', 'Bloop', 'Twiddle', 'Gloop',
+    'Pudding', 'Biscuit', 'Wiggle', 'Fuzzle', 'Honk', 'Sniffle', 'Turnip', 'Bagel', 'Noggin', 'Splat', 'Pogo', 'Dumpling',
+    'Kazoo', 'Fidget', 'Muffin', 'Goober', 'Tumble', 'Zigzag', 'Pebble', 'Smudge', 'Hiccup', 'Boing', 'Radish', 'Tater',
+    'Whiffle', 'Scooter', 'Jellybean', 'Marble', 'Crouton', 'Wonton', 'Plonk', 'Snickerdoodle'];
+
+  function groupsOf(facts, kinds) {
+    const out = [];
+    for (const [kind, sym] of kinds) for (let t = 1; t <= N; t++) {
+      out.push({ key: kind + t, label: sym + t, ids: facts.filter(f => f.kind === kind && (f.a === t || f.b === t)).map(f => f.id) });
+    }
+    return out;
+  }
+  function makeSubject(name, blurb, goal, facts, kinds) {
+    facts.sort((p, q) => p.rank - q.rank || p.size - q.size || p.a - q.a);
+    const byId = {}, idx = {};
+    facts.forEach((f, i) => { byId[f.id] = f; idx[f.id] = i; });
+    return { name, blurb, goal, facts, byId, idx, groups: groupsOf(facts, kinds) };
+  }
+  const times = [], plusminus = [];
+  for (let a = 1; a <= N; a++) for (let b = a; b <= N; b++) {
+    times.push({ id: a + 'x' + b, kind: 'x', a, b, size: a * b, rank: Math.min(TABLE_ORDER.indexOf(a), TABLE_ORDER.indexOf(b)) });
+    plusminus.push({ id: a + '+' + b, kind: '+', a, b, size: a + b, rank: addTier(a, b) });
+    plusminus.push({ id: a + '-' + b, kind: '-', a, b, size: a + b, rank: addTier(a, b) + 0.5 });
+  }
+  const SUBJECTS = {
+    times: makeSubject('Times tables', '1 × 1 up to 10 × 10', 'all the times tables from 1 × 1 to 10 × 10', times, [['x', '×']]),
+    plusminus: makeSubject('Adding and subtracting', 'Sums up to 20', 'every adding and subtracting fact up to 20', plusminus, [['+', '+'], ['-', '−']]),
+  };
+  function find(id) {
+    for (const key in SUBJECTS) if (SUBJECTS[key].byId[id]) return { fact: SUBJECTS[key].byId[id], subject: key, idx: SUBJECTS[key].idx[id] };
+    return null;
+  }
+
+  /* One fact can be asked two ways round (7 × 8 or 8 × 7; 15 − 7 or 15 − 8). */
+  function pose(f, flip) {
+    if (f.kind === 'x') return { x: flip ? f.b : f.a, op: '×', y: flip ? f.a : f.b, ans: f.a * f.b };
+    if (f.kind === '+') return { x: flip ? f.b : f.a, op: '+', y: flip ? f.a : f.b, ans: f.a + f.b };
+    return { x: f.a + f.b, op: '−', y: flip ? f.b : f.a, ans: flip ? f.a : f.b };
+  }
+
+  function dayStart(now, plus = 0) { const d = new Date(now); return new Date(d.getFullYear(), d.getMonth(), d.getDate() + plus).getTime(); }
+  function dateKey(now) { const d = new Date(now), p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); }
+
+  /* Stages: 0 cold egg, 1 warm egg, 2 cracking egg, 3 hatchling, 4 grown up (memorized). */
+  function newSave(now, subject, name) {
+    const facts = {};
+    for (const f of SUBJECTS[subject].facts) facts[f.id] = { s: 0, due: 0, seen: 0, r: 0, w: 0, last: 0 };
+    return { id: 'p' + now + Math.floor(Math.random() * 1e6), name: name || 'Keeper', subject, created: now, facts, seeds: 0, hats: [], worn: {}, days: {}, badges: [], done: 0, sound: true, mic: false };
+  }
+  function repair(p, now) {
+    if (!p || typeof p !== 'object' || !SUBJECTS[p.subject] || typeof p.facts !== 'object') return null;
+    const base = newSave(now, p.subject, p.name);
+    const out = Object.assign(base, p, { facts: base.facts });
+    for (const id in base.facts) {
+      const old = p.facts[id];
+      if (old && typeof old === 'object') out.facts[id] = { s: Math.max(0, Math.min(4, old.s | 0)), due: +old.due || 0, seen: old.seen ? 1 : 0, r: old.r | 0, w: old.w | 0, last: +old.last || 0 };
+    }
+    for (const k of ['hats', 'badges']) if (!Array.isArray(out[k])) out[k] = [];
+    for (const k of ['worn', 'days']) if (!out[k] || typeof out[k] !== 'object') out[k] = {};
+    out.seeds = Math.max(0, out.seeds | 0);
+    out.name = String(out.name).slice(0, 16);
+    return out;
+  }
+
+  function startRound() { return { asked: 0, len: ROUND_LEN, learners: [], retries: [], lastId: null, ok: 0, hatched: [], grown: [], seeds: 0 }; }
+
+  function nextQuestion(save, round, now, rnd = Math.random) {
+    if (round.asked >= round.len) return null;
+    const S = SUBJECTS[save.subject], F = save.facts, cands = [];
+    const waiting = id => round.retries.some(r => r.id === id);
+    const add = (id, mode) => { if (!cands.some(c => c.id === id)) cands.push({ id, mode }); };
+    // 1. facts she just missed, once a couple of other questions have gone by
+    round.retries.filter(r => r.wait <= 0).forEach(r => add(r.id, r.mode));
+    // 2. facts that are due for a check
+    S.facts.filter(f => F[f.id].s >= 1 && F[f.id].due <= now && !waiting(f.id))
+      .sort((p, q) => F[p.id].due - F[q.id].due).forEach(f => add(f.id, 'due'));
+    // 3. new facts, a few at a time
+    const shaky = S.facts.filter(f => F[f.id].s === 1 || F[f.id].s === 2).length;
+    const fresh = S.facts.filter(f => F[f.id].s === 0 && !waiting(f.id));
+    if (round.learners.length < MAX_LEARNERS && shaky < MAX_SHAKY) fresh.slice(0, 2).forEach(f => add(f.id, 'new'));
+    // 4. missed facts that have not waited long enough yet
+    round.retries.slice().sort((p, q) => p.wait - q.wait).forEach(r => add(r.id, r.mode));
+    // 5. bonus practice on facts that are not due yet
+    S.facts.filter(f => F[f.id].s >= 1 && F[f.id].s <= 3 && F[f.id].due > now)
+      .sort((p, q) => F[p.id].s - F[q.id].s || F[p.id].last - F[q.id].last).forEach(f => add(f.id, 'practice'));
+    S.facts.filter(f => F[f.id].s === 4 && F[f.id].due > now)
+      .sort((p, q) => F[p.id].last - F[q.id].last).forEach(f => add(f.id, 'practice'));
+    if (!cands.length) fresh.slice(0, 2).forEach(f => add(f.id, 'new'));
+    if (!cands.length) return null;
+    const pick = cands.find(c => c.id !== round.lastId) || cands[0];
+    round.retries = round.retries.filter(r => r.id !== pick.id);
+    round.retries.forEach(r => { r.wait--; });
+    round.lastId = pick.id;
+    round.asked++;
+    const f = S.byId[pick.id];
+    return Object.assign({ id: f.id, kind: f.kind, mode: pick.mode, stage: F[f.id].s }, pose(f, rnd() < 0.5));
+  }
+
+  function answer(save, round, q, given, ms, now) {
+    const S = SUBJECTS[save.subject], f = save.facts[q.id], from = f.s, key = dateKey(now);
+    const day = save.days[key] || (save.days[key] = { q: 0, ok: 0, rounds: 0, hatched: 0, grown: 0 });
+    const correct = Number(given) === q.ans;
+    const res = { correct, from, to: from, event: '', seeds: 0, badges: [], allDone: false, quick: false };
+    day.q++;
+    f.last = now;
+    if (!correct) {
+      f.w++;
+      if (from === 0) {
+        if (!round.learners.includes(q.id)) round.learners.push(q.id);
+        round.retries.push({ id: q.id, wait: 2, mode: 'new' });
+        res.event = 'teach';
+      } else {
+        f.s = from === 4 ? 2 : Math.max(1, from - 1);
+        f.due = now;
+        round.retries.push({ id: q.id, wait: 2, mode: 'fix' });
+        res.event = 'slipped';
+      }
+      f.seen = 1;
+      res.to = f.s;
+      return res;
+    }
+    f.r++; day.ok++; round.ok++;
+    res.quick = ms <= QUICK_MS;
+    res.seeds = 2 + (res.quick ? 1 : 0);
+    if (q.mode === 'practice') { res.event = 'practice'; res.seeds = 1; }
+    else if (q.mode === 'fix') { f.due = dayStart(now, 1); res.event = 'fixed'; }
+    else if (from === 0) {
+      if (!f.seen && ms <= FAST_MS) { f.s = 3; f.due = dayStart(now, 1); res.event = 'placed'; }
+      else {
+        f.s = 1; f.due = now; res.event = 'warmed';
+        if (!round.learners.includes(q.id)) round.learners.push(q.id);
+        round.retries.push({ id: q.id, wait: 3, mode: 'again' });
+      }
+    }
+    else if (from === 1) { f.s = 2; f.due = dayStart(now, 1); res.event = 'cracked'; }
+    else if (from === 2) { f.s = 3; f.due = dayStart(now, 2); res.event = 'hatched'; }
+    else if (from === 3) {
+      if (ms <= SOLID_MS) { f.s = 4; f.due = dayStart(now, 7); res.event = 'grown'; }
+      else { f.due = dayStart(now, 1); res.event = 'almost'; }
+    }
+    else { f.due = dayStart(now, 21); res.event = 'kept'; }
+    f.seen = 1;
+    res.to = f.s;
+    if (res.event === 'placed' || res.event === 'hatched') { res.seeds += 5; day.hatched++; round.hatched.push(q.id); }
+    if (res.event === 'grown') {
+      res.seeds += 10; day.grown++; round.grown.push(q.id);
+      for (const g of S.groups) {
+        if (g.ids.includes(q.id) && !save.badges.includes(g.key) && g.ids.every(id => save.facts[id].s === 4)) {
+          save.badges.push(g.key); res.badges.push(g.label); res.seeds += 25;
+        }
+      }
+      if (S.facts.every(x => save.facts[x.id].s === 4)) { if (!save.done) save.done = now; res.allDone = true; }
+    }
+    save.seeds += res.seeds;
+    round.seeds += res.seeds;
+    return res;
+  }
+
+  function finishRound(save, round, now) {
+    const key = dateKey(now);
+    const day = save.days[key] || (save.days[key] = { q: 0, ok: 0, rounds: 0, hatched: 0, grown: 0 });
+    day.rounds++;
+  }
+
+  function stats(save, now) {
+    const S = SUBJECTS[save.subject], by = [0, 0, 0, 0, 0];
+    let due = 0;
+    for (const f of S.facts) { const st = save.facts[f.id]; by[st.s]++; if (st.s >= 1 && st.due <= now) due++; }
+    const played = Object.keys(save.days).filter(k => save.days[k].q > 0).sort();
+    let streak = 0, d = now;
+    if (!(save.days[dateKey(d)] && save.days[dateKey(d)].q)) d = dayStart(now, -1);
+    while (save.days[dateKey(d)] && save.days[dateKey(d)].q > 0) { streak++; d = dayStart(d, -1); }
+    let q = 0, ok = 0;
+    for (const k of played) { q += save.days[k].q; ok += save.days[k].ok; }
+    return {
+      by, grown: by[4], total: S.facts.length, due, streak, days: played.length, q, ok,
+      groups: S.groups.map(g => ({ key: g.key, label: g.label, of: g.ids.length, n: g.ids.filter(id => save.facts[id].s === 4).length })),
+      tricky: S.facts.filter(f => save.facts[f.id].w > 0).sort((a, b) => save.facts[b.id].w - save.facts[a.id].w).slice(0, 6).map(f => f.id),
+    };
+  }
+
+  /* Turn what the microphone heard into a number. Takes the last number in the sentence. */
+  const UNITS = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19 };
+  const TENS = { twenty: 20, thirty: 30, forty: 40, fourty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+  const SOUNDALIKE = { won: 1, to: 2, too: 2, tree: 3, free: 3, for: 4, fore: 4, sex: 6, sticks: 6, ate: 8, nein: 9, tin: 10 };
+  function parseSpoken(text) {
+    const toks = String(text).toLowerCase().replace(/(\d)([a-z])/g, '$1 $2').replace(/([a-z])(\d)/g, '$1 $2')
+      .replace(/[^a-z0-9]+/g, ' ').split(' ').filter(Boolean);
+    if (toks.length === 1 && toks[0] in SOUNDALIKE) return SOUNDALIKE[toks[0]];
+    const out = [];
+    for (let i = 0; i < toks.length; i++) {
+      const t = toks[i];
+      if (/^\d+$/.test(t)) out.push(Number(t));
+      else if (t in TENS) { let v = TENS[t]; const n = UNITS[toks[i + 1]]; if (n >= 1 && n <= 9) { v += n; i++; } out.push(v); }
+      else if (t in UNITS) out.push(UNITS[t]);
+      else if (t === 'hundred') { if (out.length && toks[i - 1] === 'one') out[out.length - 1] = 100; else out.push(100); }
+    }
+    return out.length ? out[out.length - 1] : null;
+  }
+
+  return { SUBJECTS, NAMES, find, pose, dayStart, dateKey, newSave, repair, startRound, nextQuestion, answer, finishRound, stats, parseSpoken,
+    ROUND_LEN, MAX_LEARNERS, FAST_MS, SOLID_MS };
+})();
+</script>
+
+<script id="game">
+(() => {
+'use strict';
+const E = Engine, KEY = 'oddEggHatchery.v1', INK = '#3B2A4A', MAX_PLAYERS = 4;
+const app = document.querySelector('#app');
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const rand = a => a[Math.floor(Math.random() * a.length)];
+const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+const opHTML = op => op === '−' ? '<span class="minus" role="img" aria-label="minus"></span>' : op;
+
+/* ---------- words ---------- */
+const TITLES = ['Sir', 'Lady', 'Captain', 'Professor', 'Doctor', 'Count', 'Baron', 'Chef', 'Agent', 'Mayor', 'Coach', 'Grandma', 'Admiral', 'Detective', 'Queen', 'Uncle'];
+const EPITHETS = ['the Brave', 'the Sneezy', 'Junior', 'the Third', 'of the Sock Drawer', 'the Slightly Damp', 'the Loud', 'the Magnificent', 'the Sleepy', 'the Unready', 'the Bouncy', 'the Suspicious'];
+const HOBBIES = ['yodelling at soup', 'collecting left socks', 'racing snails (and losing)', 'knitting spaghetti', 'staring at toast', 'burping the alphabet', 'sneezing glitter', 'hiding in cereal boxes', 'teaching worms to dance', 'wearing pancakes as hats', 'arguing with the moon', 'juggling jelly', 'napping in the sink', 'singing to potatoes', 'tickling clouds', 'painting its toenails with ketchup', 'moonwalking up the stairs', 'whispering secrets to spoons', 'riding the vacuum cleaner', 'counting its own toes (wrongly)', 'practicing evil laughs', 'smelling old books', 'wrestling pillows', 'inventing new sneezes', 'doing ballet in rain boots'];
+const FEARS = ['bubbles', 'the number 7 (because 7 ate 9)', 'mittens', 'cheese that is too quiet', 'its own tail', 'Tuesdays', 'broccoli with opinions', 'wet socks', 'ducks wearing hats', 'tiny umbrellas', 'bath time', 'very polite spiders'];
+const ASK = [
+  ['A brand new egg! Brr, it is chilly.', 'This egg is cold. Warm it up with the right answer!', 'Mystery egg! Only math can open it.'],
+  ['It is wobbling! Keep it warm.', 'This egg is getting toasty.', 'Warm egg coming back for more.'],
+  ['It is cracking! Something is peeking at you.', 'Is that two eyes? Or three? One more push!', 'Crack, crack... nearly there!'],
+];
+const EGG_OK = ['Ooh, toasty!', 'The egg did a tiny dance.', 'Something inside just burped.', 'Wobble wobble!', 'The egg is humming a little tune.', 'Was that a giggle? From an egg?', 'Warm and cozy!', 'The egg approves.', 'A tiny thumbs-up poked out. Then went back in.', 'The egg whispered: nice one.'];
+const PET_OK = ['It did a happy wiggle!', 'High five! (It has no hands. High forehead?)', 'It burped a rainbow.', 'It is doing its victory dance. It is a terrible dance.', 'It gave you a slightly sticky hug.', 'It is SO proud of you. It told a spoon.', 'It sneezed confetti.', 'Nom nom, brain food!', 'It saluted. With its foot.'];
+const OOPS = ['Oops! The egg rolled over.', 'Not quite. The egg is not mad, just egg-stra patient.', 'So close! Have a peek at the answer.', 'The egg shrugged. (How?)', 'Nearly! Look, then try again in a moment.', 'Whoops-a-doodle. Here is how it goes.'];
+const HATS = [
+  { id: 'party', name: 'Party hat', price: 30 }, { id: 'cone', name: 'Traffic cone', price: 60 }, { id: 'chef', name: 'Chef hat', price: 100 },
+  { id: 'cowboy', name: 'Cowboy hat', price: 150 }, { id: 'tophat', name: 'Top hat', price: 200 }, { id: 'propeller', name: 'Propeller cap', price: 260 },
+  { id: 'fish', name: 'A fish', price: 330 }, { id: 'crown', name: 'Crown', price: 450 },
+];
+
+/* ---------- saving ---------- */
+function loadRoot() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(KEY));
+    if (raw && Array.isArray(raw.players)) {
+      const players = raw.players.map(p => E.repair(p, Date.now())).filter(Boolean);
+      return { v: 1, cur: Math.min(raw.cur | 0, Math.max(0, players.length - 1)), players };
+    }
+  } catch (err) { console.warn('[Hatchery] Could not read saved progress:', err); }
+  return { v: 1, cur: 0, players: [] };
+}
+let saveBroken = false;
+function persist() {
+  try { localStorage.setItem(KEY, JSON.stringify(root)); saveBroken = false; }
+  catch (err) { saveBroken = true; console.warn('[Hatchery] Could not save progress:', err); }
+}
+let root = loadRoot();
+let save = root.players[root.cur] || null;
+const ui = { screen: save ? (root.players.length > 1 ? 'who' : 'home') : 'welcome', round: null, q: null, typed: '', phase: 'ask', overlay: null, res: null, t0: 0, lock: 0, bubble: '', timer: 0, detail: null, sum: null, arm: '', note: '' };
+
+/* ---------- drawing pets ---------- */
+const COLORS = ['#FF8A5B', '#2BB5A0', '#FFC93C', '#8E7CFF', '#5BC0EB', '#F2779A', '#7BC950', '#FF9F1C', '#C77DFF', '#49B6FF'];
+const EGGS = ['#FFD9A0', '#BFE9DF', '#FFE48A', '#D6CCFF', '#BDE3F7', '#FFC7D6', '#CDEBB0', '#FFD0A6'];
+const TOPY = [36, 30, 38, 28, 28], EYEY = [62, 56, 64, 60, 58], HALF = [22, 20, 26, 12, 22], SIDE = [35, 26, 34, 35, 36];
+function rng(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const specCache = {};
+function spec(id) {
+  if (specCache[id]) return specCache[id];
+  const info = E.find(id);
+  let h = 7; for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) | 0;
+  h = Math.imul(h ^ (h >>> 15), 2246822519); h ^= h >>> 13; h = Math.imul(h, 3266489917); h ^= h >>> 16;
+  const r = rng(h), pick = a => a[Math.floor(r() * a.length)];
+  const s = { c: pick(COLORS), egg: pick(EGGS), shape: Math.floor(r() * 5), eyes: 1 + Math.floor(r() * 3), mouth: Math.floor(r() * 4), top: Math.floor(r() * 5), spots: r() < 0.5, pat: Math.floor(r() * 3), hobby: pick(HOBBIES), fear: pick(FEARS) };
+  const base = E.NAMES[info.idx % E.NAMES.length], title = pick(TITLES), epi = pick(EPITHETS);
+  s.name = info.idx < E.NAMES.length ? title + ' ' + base : base + ' ' + epi;
+  return (specCache[id] = s);
+}
+const stroke = w => `stroke="${INK}" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round"`;
+function eggArt(s, stage) {
+  const col = stage === 0 ? '#D5E3EE' : s.egg, pc = stage === 0 ? '#BCCFDD' : 'rgba(255,255,255,.6)';
+  const pat = s.pat === 0 ? `<g fill="${pc}"><circle cx="48" cy="58" r="6"/><circle cx="72" cy="72" r="8"/><circle cx="52" cy="92" r="5"/><circle cx="70" cy="46" r="4"/></g>`
+    : s.pat === 1 ? `<g fill="none" stroke="${pc}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><path d="M33 64l9-8 9 8 9-8 9 8 9-8 9 8"/><path d="M36 90l8-7 8 7 8-7 8 7 8-7 8 7"/></g>`
+    : `<g fill="none" stroke="${pc}" stroke-width="6" stroke-linecap="round"><path d="M33 56q27-12 54 0"/><path d="M29 76q31 12 62 0"/><path d="M36 96q24 10 48 0"/></g>`;
+  let extra = '';
+  if (stage === 0) extra = `<path d="M30 92q30 12 60 0v9q-30 12-60 0z" fill="#8E7CFF" ${stroke(2.5)}/><path d="M74 98l4 20 9-3-4-19z" fill="#8E7CFF" ${stroke(2.5)}/><text x="96" y="34" font-size="13" fill="${INK}" font-family="inherit">brr</text>`;
+  if (stage === 1) extra = `<g fill="none" stroke="#FF9F1C" stroke-width="3" stroke-linecap="round"><path d="M16 60q-5-7 0-14t0-14"/><path d="M104 60q5-7 0-14t0-14"/></g>`;
+  if (stage === 2) extra = `<ellipse cx="60" cy="52" rx="16" ry="10" fill="${INK}"/><circle cx="54" cy="52" r="4.5" fill="#fff"/><circle cx="67" cy="52" r="4.5" fill="#fff"/><circle cx="55" cy="53" r="2" fill="${INK}"/><circle cx="68" cy="53" r="2" fill="${INK}"/><path d="M30 70l10 8 8-10 10 11 8-11 9 10 15-8" fill="none" ${stroke(2.5)}/>`;
+  return `<ellipse cx="60" cy="72" rx="34" ry="44" fill="${col}" ${stroke(3)}/>${pat}${extra}`;
+}
+function hatArt(h) {
+  const st = stroke(2.5);
+  switch (h) {
+    case 'party': return `<path d="M-13 2L0-30 13 2z" fill="#5BC0EB" ${st}/><path d="M-7-12l12-5M-10-4l18-7" stroke="#fff" stroke-width="3" stroke-linecap="round"/><circle cx="0" cy="-31" r="5" fill="#FFC93C" ${st}/>`;
+    case 'cone': return `<path d="M-10 0L-3-30h6L10 0z" fill="#FF7A1A" ${st}/><path d="M-6-13h12" stroke="#fff" stroke-width="4"/><rect x="-16" y="-2" width="32" height="6" rx="2" fill="#FF7A1A" ${st}/>`;
+    case 'chef': return `<circle cx="-9" cy="-20" r="9" fill="#fff" ${st}/><circle cx="9" cy="-20" r="9" fill="#fff" ${st}/><circle cx="0" cy="-25" r="10" fill="#fff" ${st}/><rect x="-12" y="-16" width="24" height="17" rx="2" fill="#fff" ${st}/>`;
+    case 'cowboy': return `<ellipse cx="0" cy="-1" rx="27" ry="6" fill="#B5793A" ${st}/><path d="M-12-2q0-22 6-20 6 6 12 0 6-2 6 20z" fill="#C98B48" ${st}/>`;
+    case 'tophat': return `<rect x="-13" y="-28" width="26" height="27" rx="2" fill="#4A3660" ${st}/><rect x="-13" y="-10" width="26" height="6" fill="#F2779A"/><rect x="-22" y="-4" width="44" height="7" rx="3.5" fill="#4A3660" ${st}/>`;
+    case 'propeller': return `<path d="M-14 1a14 13 0 0 1 28 0z" fill="#F2779A" ${st}/><path d="M-14 1a14 13 0 0 1 14-13v13z" fill="#5BC0EB" ${st}/><path d="M0-12v-8" ${st}/><g class="spin"><ellipse cx="-9" cy="-21" rx="9" ry="3" fill="#FFC93C" ${st}/><ellipse cx="9" cy="-21" rx="9" ry="3" fill="#FFC93C" ${st}/></g>`;
+    case 'fish': return `<path d="M13-9l11-8v16z" fill="#5BC0EB" ${st}/><ellipse cx="0" cy="-9" rx="16" ry="8" fill="#5BC0EB" ${st}/><circle cx="-8" cy="-11" r="2" fill="${INK}"/><path d="M-2-13q5 4 0 8" fill="none" ${st}/>`;
+    case 'crown': return `<path d="M-16 1V-18l8 9 8-13 8 13 8-9V1z" fill="#FFC93C" ${st}/><circle cx="0" cy="-6" r="3" fill="#F2779A"/><circle cx="-9" cy="-5" r="2" fill="#5BC0EB"/><circle cx="9" cy="-5" r="2" fill="#5BC0EB"/>`;
+    default: return '';
+  }
+}
+function petBody(s, full) {
+  const ty = TOPY[s.shape], ey = EYEY[s.shape], my = ey + 16, hx = HALF[s.shape], sd = SIDE[s.shape], st = stroke(3);
+  const top = [
+    `<path d="M${60 - hx} ${ty + 12}l-5-20 15 10z M${60 + hx} ${ty + 12}l5-20-15 10z" fill="#FFF3D6" ${st}/>`,
+    `<path d="M${60 - hx / 2} ${ty + 8}l-7-22M${60 + hx / 2} ${ty + 8}l7-22" fill="none" ${st}/><circle cx="${53 - hx / 2}" cy="${ty - 15}" r="5" fill="#FFC93C" ${stroke(2.5)}/><circle cx="${67 + hx / 2}" cy="${ty - 15}" r="5" fill="#FFC93C" ${stroke(2.5)}/>`,
+    `<circle cx="${56 - hx}" cy="${ty + 12}" r="11" fill="${s.c}" ${st}/><circle cx="${64 + hx}" cy="${ty + 12}" r="11" fill="${s.c}" ${st}/><circle cx="${56 - hx}" cy="${ty + 12}" r="5" fill="rgba(255,255,255,.5)"/><circle cx="${64 + hx}" cy="${ty + 12}" r="5" fill="rgba(255,255,255,.5)"/>`,
+    `<path d="M60 ${ty + 4}q-10-18-16-14M60 ${ty + 4}q0-22 2-20M60 ${ty + 4}q10-18 16-14" fill="none" ${st}/>`,
+    '',
+  ][s.top];
+  const limbs = full ? `<circle cx="${57 - sd}" cy="80" r="6.5" fill="${s.c}" ${st}/><circle cx="${63 + sd}" cy="80" r="6.5" fill="${s.c}" ${st}/>` + (s.shape === 4 ? '' : `<ellipse cx="46" cy="109" rx="10" ry="5.5" fill="${s.c}" ${st}/><ellipse cx="74" cy="109" rx="10" ry="5.5" fill="${s.c}" ${st}/>`) : '';
+  const body = [
+    `<circle cx="60" cy="72" r="36" fill="${s.c}" ${st}/>`,
+    `<rect x="34" y="30" width="52" height="78" rx="26" fill="${s.c}" ${st}/>`,
+    `<rect x="26" y="38" width="68" height="66" rx="22" fill="${s.c}" ${st}/>`,
+    `<path d="M60 28C80 28 96 72 96 88 96 112 24 112 24 88 24 72 40 28 60 28z" fill="${s.c}" ${st}/>`,
+    `<path d="M24 106V64a36 36 0 0 1 72 0v42q-9-9-18 0-9-9-18 0-9-9-18 0-9-9-18 0z" fill="${s.c}" ${st}/>`,
+  ][s.shape];
+  const spots = s.spots ? `<g fill="rgba(0,0,0,.12)"><circle cx="42" cy="90" r="4"/><circle cx="79" cy="88" r="4.5"/><circle cx="48" cy="96" r="2.5"/></g>` : '';
+  const ex = s.eyes === 1 ? [60] : s.eyes === 2 ? [48, 72] : [43, 60, 77], er = s.eyes === 1 ? 11 : s.eyes === 2 ? 8 : 6.5;
+  const eyes = ex.map(x => `<circle cx="${x}" cy="${ey}" r="${er}" fill="#fff" ${stroke(2.5)}/><circle cx="${x + 1}" cy="${ey + 1}" r="${er * 0.45}" fill="${INK}"/><circle cx="${x + 2.4}" cy="${ey - 1}" r="${er * 0.17}" fill="#fff"/>`).join('');
+  const mouth = [
+    `<path d="M50 ${my}q10 9 20 0" fill="none" ${st}/>`,
+    `<path d="M48 ${my - 2}h24q-2 14-12 14t-12-14z" fill="#5A2A3C" ${stroke(2.5)}/><rect x="57" y="${my - 1}" width="6" height="6" rx="1" fill="#fff"/>`,
+    `<path d="M50 ${my}q10 9 20 0" fill="none" ${st}/><path d="M57 ${my + 4}q4 11 8 0z" fill="#FF6B8A" ${stroke(2)}/>`,
+    `<ellipse cx="60" cy="${my + 3}" rx="5" ry="6" fill="#5A2A3C" ${stroke(2.5)}/>`,
+  ][s.mouth];
+  const cheeks = `<g fill="#FF6B8A" opacity=".35"><circle cx="41" cy="${my - 1}" r="5"/><circle cx="79" cy="${my - 1}" r="5"/></g>`;
+  return top + limbs + body + spots + cheeks + eyes + mouth;
+}
+function creatureSVG(id, stage, o = {}) {
+  const s = spec(id), size = o.size || 120;
+  let inner;
+  if (stage <= 2) inner = eggArt(s, stage);
+  else if (stage === 3) inner = `<g transform="translate(60 72) scale(.74) translate(-60 -72)">${petBody(s, false)}</g><path d="M30 92l8-8 8 8 7-8 7 8 7-8 7 8 8-8 8 8q0 30-30 30T30 92z" fill="${s.egg}" ${stroke(3)}/>`;
+  else inner = petBody(s, true) + (o.hat ? `<g transform="translate(60 ${TOPY[s.shape] + 3})">${hatArt(o.hat)}</g>` : '');
+  return `<svg class="pet st${stage} ${o.cls || ''}" viewBox="0 -14 120 144" width="${size}" height="${Math.round(size * 1.2)}" aria-hidden="true"><ellipse cx="60" cy="122" rx="30" ry="5" fill="rgba(0,0,0,.1)"/>${inner}</svg>`;
+}
+
+/* ---------- facts as words and pictures ---------- */
+const canon = id => E.pose(E.find(id).fact, false);
+const factText = (id, withAnswer) => { const p = canon(id); return `${p.x} ${p.op} ${p.y}` + (withAnswer ? ` = ${p.ans}` : ''); };
+function trick(q) {
+  const lo = Math.min(q.x, q.y), hi = Math.max(q.x, q.y), a = q.ans;
+  if (q.kind === 'x') {
+    if (lo === 1) return 'Anything times 1 stays exactly the same. Easy egg!';
+    if (hi === 10) return `Times 10? Pop a zero on the end of ${lo}: ${a}.`;
+    const special = {
+      '7x8': '5, 6, 7, 8! 56 = 7 × 8.', '6x8': 'It rhymes: six times eight is forty-eight.', '6x6': 'It rhymes: six times six is thirty-six.',
+      '8x8': 'I ate and I ate till I was sick on the floor: 8 × 8 = 64.', '6x7': 'You know 6 × 6 = 36. Add one more 6 and you get 42.', '7x7': 'Chant it: seven sevens, forty-nine!',
+    }[q.id];
+    if (special) return special;
+    if (lo === 2) return `Times 2 means double it: ${hi} + ${hi} = ${a}.`;
+    if (lo === 5 || hi === 5) return `Count by 5s. The answer always ends in 0 or 5.`;
+    if (hi === 9) return `For 9 × ${lo}: start with one less than ${lo}, which is ${lo - 1}. What goes with ${lo - 1} to make 9? ${10 - lo}. So ${a}.`;
+    if (lo === 4 || hi === 4) { const n = lo === 4 ? hi : lo; return `Times 4 is double, then double again: ${n} → ${n * 2} → ${n * 4}.`; }
+    if (lo === 3) return `Times 3: double it, then add one more. ${hi} + ${hi} + ${hi} = ${a}.`;
+    return `6 times an even number ends in that same number: 6 × ${hi} = ${a}.`;
+  }
+  if (q.kind === '+') {
+    if (lo === 1) return 'Adding 1 is just the next number when you count.';
+    if (lo === 2) return `Count on two from ${hi}: ${hi + 1}, ${hi + 2}.`;
+    if (hi === 10) return `Ten and ${lo} more makes ${a}.`;
+    if (lo === hi) return `It is a double! ${lo} + ${lo} = ${a}. Doubles are great to know by heart.`;
+    if (a === 10) return `${lo} and ${hi} are best friends. Together they always make 10.`;
+    if (hi - lo === 1) return `Nearly a double: ${lo} + ${lo} = ${lo * 2}, and one more makes ${a}.`;
+    if (hi === 9) return `9 is nearly 10. Do 10 + ${lo} = ${10 + lo}, then take 1 away: ${a}.`;
+    if (a > 10) return `Make a ten first: ${hi} needs ${10 - hi} more to reach 10. That leaves ${lo - (10 - hi)}. 10 + ${lo - (10 - hi)} = ${a}.`;
+    return `Start at ${hi} and count on ${lo} more.`;
+  }
+  if (q.y === 1) return 'Taking away 1 is the number just before.';
+  if (q.y === 2) return `Count back two from ${q.x}: ${q.x - 1}, ${q.x - 2}.`;
+  if (q.y === a) return `A double, backwards: ${a} + ${a} = ${q.x}, so ${q.x} − ${a} = ${a}.`;
+  return `Think adding: ${q.y} + what = ${q.x}? It is ${a}, because ${q.y} + ${a} = ${q.x}.`;
+}
+function picture(q) {
+  const dot = (cx, cy, fill, o = 1) => `<circle cx="${cx}" cy="${cy}" r="5" fill="${fill}" opacity="${o}"/>`;
+  if (q.kind === 'x') {
+    const lo = Math.min(q.x, q.y), hi = Math.max(q.x, q.y);
+    let d = '';
+    for (let r = 0; r < lo; r++) for (let c = 0; c < hi; c++) d += dot(8 + c * 14, 8 + r * 14, r % 2 ? '#2BB5A0' : '#FF7A59');
+    return `<svg viewBox="0 0 ${hi * 14 + 2} ${lo * 14 + 2}" width="${(hi * 14 + 2) * 1.5}" height="${(lo * 14 + 2) * 1.5}" role="img" aria-label="${plural(lo, 'row')} of ${hi} dots">${d}</svg><p class="tiny">${plural(lo, 'row')} of ${hi}</p>`;
+  }
+  const total = q.kind === '+' ? q.ans : q.x, first = q.kind === '+' ? q.x : q.ans;
+  let d = '';
+  for (let i = 0; i < total; i++) {
+    const cx = 8 + (i % 10) * 16 + (i % 10 >= 5 ? 6 : 0), cy = 8 + Math.floor(i / 10) * 16;
+    if (q.kind === '+') d += dot(cx, cy, i < first ? '#FF7A59' : '#2BB5A0');
+    else d += i < first ? dot(cx, cy, '#2BB5A0') : dot(cx, cy, '#B9AEC4', 0.5) + `<path d="M${cx - 5} ${cy - 5}l10 10M${cx + 5} ${cy - 5}l-10 10" stroke="${INK}" stroke-width="2"/>`;
+  }
+  const w = 10 * 16 + 8, h = Math.ceil(total / 10) * 16 + 2;
+  const cap = q.kind === '+' ? `${q.x} orange and ${q.y} green` : `${q.x} dots, ${q.y} crossed out`;
+  return `<svg viewBox="0 0 ${w} ${h}" width="${w * 1.7}" height="${h * 1.7}" role="img" aria-label="${cap}">${d}</svg><p class="tiny">${cap}</p>`;
+}
+
+/* ---------- sound ---------- */
+let ac = null;
+function sfx(kind) {
+  if (!save || !save.sound) return;
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    const seq = { right: [[660, .08], [880, .12]], wrong: [[233, .2]], hatch: [[523, .08], [659, .08], [784, .08], [1047, .2]], grown: [[523, .1], [659, .1], [784, .1], [1047, .1], [1319, .28]], buy: [[880, .06], [1175, .12]], done: [[392, .1], [523, .1], [659, .1], [784, .22]] }[kind];
+    let t = ac.currentTime;
+    for (const [freq, dur] of seq) {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = kind === 'wrong' ? 'sine' : 'triangle';
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.16, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t); o.stop(t + dur + 0.02);
+      t += dur;
+    }
+  } catch (err) { console.warn('[Hatchery] Sound failed:', err); }
+}
+
+/* ---------- microphone ---------- */
+const Mic = {
+  supported: !!(window.SpeechRecognition || window.webkitSpeechRecognition), on: false, rec: null, status: '', fails: 0, t: 0,
+  start() {
+    if (!this.supported || this.rec) return;
+    const R = window.SpeechRecognition || window.webkitSpeechRecognition, rec = new R();
+    rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = false; rec.maxAlternatives = 4;
+    rec.onresult = e => { for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) onVoice(Array.from(e.results[i], a => a.transcript)); };
+    rec.onerror = e => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') this.fail('The microphone is blocked. Typing still works!');
+      else if (e.error === 'network') this.fail('The microphone needs the internet. Typing still works!');
+    };
+    rec.onend = () => {
+      this.rec = null;
+      if (!this.on || ui.screen !== 'round') return;
+      this.fails = Date.now() - this.t < 1500 ? this.fails + 1 : 0;
+      if (this.fails >= 3) { this.fail('The microphone stopped. Typing still works!'); return; }
+      setTimeout(() => { if (this.on && ui.screen === 'round') this.start(); }, 300);
+    };
+    this.rec = rec; this.on = true; this.status = ''; this.t = Date.now();
+    try { rec.start(); } catch (err) { this.fail('The microphone would not start. Typing still works!'); }
+  },
+  stop() { this.on = false; const r = this.rec; this.rec = null; if (r) { r.onend = null; try { r.stop(); } catch (err) { /* already stopped */ } } },
+  fail(msg) { this.stop(); this.status = msg; if (save) { save.mic = false; persist(); } if (ui.screen === 'round') render(); },
+};
+function onVoice(alts) {
+  if (ui.screen !== 'round') return;
+  if (ui.overlay) { if (alts.some(t => /\b(next|okay|ok|got it|hooray|go)\b/i.test(t))) closeOverlay(); return; }
+  if (ui.phase !== 'ask') return;
+  const nums = alts.map(E.parseSpoken).filter(n => n !== null);
+  if (!nums.length) { ui.bubble = 'I did not catch a number. Say it again!'; render(); return; }
+  ui.typed = String(nums.includes(ui.q.ans) ? ui.q.ans : nums[0]).slice(0, 3);
+  submit();
+}
+
+/* ---------- playing a round ---------- */
+function startRound() {
+  clearTimeout(ui.timer);
+  ui.round = E.startRound();
+  ui.screen = 'round';
+  Mic.status = '';
+  if (save.mic) Mic.start();
+  nextQ();
+}
+function nextQ() {
+  clearTimeout(ui.timer);
+  const q = E.nextQuestion(save, ui.round, Date.now());
+  if (!q) { endRound(); return; }
+  const name = spec(q.id).name;
+  ui.q = q; ui.typed = ''; ui.phase = 'ask'; ui.overlay = null; ui.res = null;
+  ui.bubble = q.stage <= 2 ? rand(ASK[q.stage]) : q.stage === 3 ? rand([`${name} is hungry for an answer.`, `${name} wants to grow up big and weird.`]) : rand([`${name} is checking you still remember.`, `${name} says: pop quiz!`]);
+  ui.t0 = performance.now();
+  render();
+}
+function submit() {
+  if (ui.phase !== 'ask' || !ui.typed) return;
+  const q = ui.q, given = Number(ui.typed), ms = performance.now() - ui.t0;
+  const res = E.answer(save, ui.round, q, given, ms, Date.now());
+  persist();
+  ui.res = res; ui.phase = 'feedback';
+  const name = spec(q.id).name;
+  if (!res.correct) { sfx('wrong'); ui.overlay = { type: 'teach', given, line: rand(OOPS) }; }
+  else if (res.event === 'placed' || res.event === 'hatched') { sfx('hatch'); ui.overlay = { type: 'hatch' }; }
+  else if (res.event === 'grown') { sfx('grown'); ui.overlay = { type: 'grown' }; }
+  else {
+    sfx('right');
+    ui.bubble = { warmed: 'Warm! This egg will pop back in a moment.', cracked: 'CRACK! Nearly ready. See you tomorrow, egg.', almost: 'Right! Answer a bit quicker next time and it will grow up.', kept: `${name} is still all grown up. Phew!`, fixed: 'That is it! You have got it now.' }[res.event] || rand(q.stage <= 2 ? EGG_OK : PET_OK);
+    ui.timer = setTimeout(nextQ, 1500);
+  }
+  if (ui.overlay) ui.lock = Date.now() + 450;
+  render();
+}
+function closeOverlay() {
+  if (!ui.overlay || Date.now() < ui.lock) return;
+  if (ui.res && ui.res.allDone) { E.finishRound(save, ui.round, Date.now()); persist(); Mic.stop(); ui.overlay = null; ui.screen = 'cert'; sfx('done'); render(); return; }
+  nextQ();
+}
+function endRound() {
+  const r = ui.round;
+  E.finishRound(save, r, Date.now());
+  persist();
+  Mic.stop();
+  ui.sum = { ok: r.ok, asked: r.asked, hatched: r.hatched.slice(), grown: r.grown.slice(), seeds: r.seeds };
+  ui.screen = 'summary';
+  sfx('done');
+  render();
+}
+function leaveRound() { clearTimeout(ui.timer); Mic.stop(); ui.overlay = null; ui.round = null; }
+
+/* ---------- screens ---------- */
+const soundBtn = () => `<button class="btn sm noprint" data-act="sound" aria-label="Sound ${save.sound ? 'on' : 'off'}">${save.sound ? '🔊' : '🔇'}</button>`;
+const micBtn = () => Mic.supported ? `<button class="btn sm ${Mic.on ? 'live' : ''}" data-act="mic">🎤 ${Mic.on ? 'Listening' : 'Mic off'}</button>` : '';
+const logo = () => `<div class="logo">${creatureSVG('7x8', 2, { size: 46 })}<h1>The Odd Egg Hatchery</h1></div>`;
+const backBar = title => `<header class="top"><button class="btn sm noprint" data-act="home">← Home</button><h1>${title}</h1><div class="chips"><span class="chip">🌱 ${save.seeds}</span></div></header>`;
+function avatar(p, size) {
+  const S = E.SUBJECTS[p.subject], best = S.facts.slice().sort((a, b) => p.facts[b.id].s - p.facts[a.id].s)[0];
+  return creatureSVG(best.id, p.facts[best.id].s, { size, hat: p.worn[best.id] });
+}
+
+function vWelcome() {
+  const opts = Object.keys(E.SUBJECTS).map((k, i) => `<label><input type="radio" name="subject" value="${k}" ${i === 0 ? 'checked' : ''}><b>${E.SUBJECTS[k].name}</b><span class="tiny">${E.SUBJECTS[k].blurb}</span></label>`).join('');
+  return `<header class="top">${logo()}${root.players.length ? '<button class="btn sm" data-act="who">← Back</button>' : ''}</header>
+  <section class="card hero"><div>
+    <p class="hello">Welcome, new Hatchery Keeper!</p>
+    <p class="lead" style="max-width:44ch">Every egg hides a math fact. Answer it and the egg warms up, cracks, and hatches into a very odd pet. Grow them all up and you are a math legend.</p>
+    <form class="form" data-form="welcome">
+      <label>What is your name?<input type="text" name="name" maxlength="16" autocomplete="off" autofocus></label>
+      <div><p style="margin-bottom:8px;font-size:1.1rem">What do you want to hatch?</p><div class="pick">${opts}</div></div>
+      <div><button class="btn big" type="submit">Let's hatch ▶</button></div>
+    </form></div>
+    <div class="heroart">${creatureSVG('6x7', 1, { size: 170, cls: 'wobble' })}</div>
+  </section>`;
+}
+function vWho() {
+  const cards = root.players.map((p, i) => { const st = E.stats(p, Date.now()); return `<button class="pcard" data-act="pick" data-i="${i}">${avatar(p, 110)}<b>${esc(p.name)}</b><span>${E.SUBJECTS[p.subject].name}</span><span class="tiny">${st.grown} of ${st.total} grown up</span></button>`; }).join('');
+  const add = root.players.length < MAX_PLAYERS ? `<button class="pcard add" data-act="addplayer"><span class="plus">+</span><b>New player</b></button>` : '';
+  return `<header class="top">${logo()}</header><section class="card"><h2>Who is hatching today?</h2><div class="who">${cards}${add}</div></section>`;
+}
+function vHome() {
+  const now = Date.now(), st = E.stats(save, now), S = E.SUBJECTS[save.subject], pct = Math.round(st.grown / st.total * 100);
+  const next = S.facts.filter(f => save.facts[f.id].s >= 1 && save.facts[f.id].due <= now)[0] || S.facts.find(f => save.facts[f.id].s === 0) || S.facts[0];
+  const ns = save.facts[next.id].s;
+  const line = st.grown === st.total ? 'Every single pet is grown up. You did it!' : st.due > 0 ? `${plural(st.due, 'egg')} ${st.due === 1 ? 'needs' : 'need'} checking today.` : st.q === 0 ? 'Your eggs are cold. Answer right to warm them up!' : 'Your eggs are resting. Meet some new ones, or do bonus practice.';
+  const pets = S.facts.filter(f => save.facts[f.id].s >= 3).slice(-10);
+  return `<header class="top">${logo()}<div class="chips"><span class="chip">🌱 ${plural(save.seeds, 'seed')}</span><span class="chip">🔥 ${plural(st.streak, 'day')} in a row</span>${soundBtn()}</div></header>
+  <section class="card hero"><div>
+    <p class="hello">Hi ${esc(save.name)}!</p><p class="lead">${line}</p>
+    <button class="btn big" data-act="play">Warm some eggs ▶</button><p class="tiny">or press Enter</p></div>
+    <div class="heroart">${creatureSVG(next.id, ns, { size: 180, cls: ns <= 2 ? 'wobble' : 'bob', hat: save.worn[next.id] })}</div>
+  </section>
+  <section class="card"><h2>${st.grown} of ${st.total} pets all grown up</h2>
+    <div class="bar" role="img" aria-label="${pct} percent"><i style="width:${pct}%"></i></div>
+    <div class="stages"><span>🥶 <b>${st.by[0]}</b> cold</span><span>🥚 <b>${st.by[1] + st.by[2]}</b> warming</span><span>🐣 <b>${st.by[3]}</b> hatched</span><span>⭐ <b>${st.by[4]}</b> grown up</span></div>
+    <div class="tables">${st.groups.map(g => `<div class="tb ${g.n === g.of ? 'done' : ''}"><b>${g.label}</b>${g.n}/${g.of}</div>`).join('')}</div>
+  </section>
+  <nav class="row"><button class="btn" data-act="book">📖 Pet book</button><button class="btn" data-act="shop">🎩 Hat shop</button>${save.done ? '<button class="btn" data-act="cert">🏆 Certificate</button>' : ''}<button class="btn" data-act="who">👥 Switch player</button><button class="btn" data-act="grown">Grown-ups</button></nav>
+  ${saveBroken ? '<p class="tiny warn">This browser is not letting the game save. Progress may be lost when you close it.</p>' : ''}
+  <div class="parade">${pets.map((f, i) => `<span style="animation-delay:${-i * 0.23}s" class="bob">${creatureSVG(f.id, save.facts[f.id].s, { size: 76, hat: save.worn[f.id] })}</span>`).join('')}</div>`;
+}
+function vOverlay() {
+  const q = ui.q, o = ui.overlay, s = spec(q.id), res = ui.res;
+  const say = Mic.on ? ' or say “next”' : '';
+  if (o.type === 'teach') {
+    const lo = Math.min(q.x, q.y), hi = Math.max(q.x, q.y);
+    const chain = q.kind === 'x' && lo > 1 ? `<p class="chain">Count by ${hi}s: ${Array.from({ length: lo }, (_, i) => i === lo - 1 ? `<b>${hi * (i + 1)}</b>` : hi * (i + 1)).join(', ')}</p>` : '';
+    return `<div class="veil"><div class="card pop"><span class="tag">${esc(o.line)}</span>
+      <div class="bigfact">${q.x} ${opHTML(q.op)} ${q.y} = <b>${q.ans}</b></div>${picture(q)}
+      <p class="trick">💡 ${esc(trick(q))}</p>${chain}
+      <button class="btn big" data-act="next">Got it ▶</button><p class="tiny">or press Enter${say}. This one will come back in a moment.</p></div></div>`;
+  }
+  if (o.type === 'hatch') {
+    const when = res.event === 'placed' ? 'tomorrow' : 'in 2 days';
+    return `<div class="veil"><div class="card pop"><p class="shout">${res.event === 'placed' ? 'POP! You knew that one!' : 'CRACK! It hatched!'}</p>
+      ${creatureSVG(q.id, 3, { size: 170, cls: 'bob' })}
+      <p class="petname">Meet ${esc(s.name)}</p>
+      <p class="facts"><b>${q.x} ${q.op} ${q.y} = ${q.ans}</b><br>Likes: ${esc(s.hobby)}.<br>Scared of: ${esc(s.fear)}.</p>
+      <p class="tiny" style="margin-bottom:12px">+${res.seeds} 🌱 &nbsp; It visits again ${when}. Answer right and it grows up.</p>
+      <button class="btn big" data-act="next">Aww! Next ▶</button><p class="tiny">or press Enter${say}</p></div></div>`;
+  }
+  const badge = res.badges.map(b => `<p class="trick" style="text-align:center">🏅 You finished the whole <b>${esc(b)}</b> set! +25 🌱</p>`).join('');
+  return `<div class="veil"><div class="card pop"><p class="shout">ALL GROWN UP!</p>
+    ${creatureSVG(q.id, 4, { size: 180, cls: 'bob', hat: save.worn[q.id] })}
+    <p class="petname">${esc(s.name)}</p>
+    <p class="facts">You know <b>${q.x} ${q.op} ${q.y} = ${q.ans}</b> by heart now.<br>Grown-up pets can wear hats from the hat shop.</p>${badge}
+    <p class="tiny" style="margin-bottom:12px">+${res.seeds} 🌱</p>
+    <button class="btn big" data-act="next">Hooray ▶</button><p class="tiny">or press Enter${say}</p></div></div>`;
+}
+function vRound() {
+  const q = ui.q, r = ui.round, shown = ui.phase === 'ask' ? q.stage : save.facts[q.id].s;
+  const dots = Array.from({ length: r.len }, (_, i) => `<i class="${i < r.asked - 1 ? 'on' : i === r.asked - 1 ? 'cur' : ''}"></i>`).join('');
+  const good = ui.phase === 'feedback' && ui.res && ui.res.correct;
+  return `<header class="top"><button class="btn sm" data-act="home">← Home</button><div class="dots" role="img" aria-label="Question ${r.asked} of ${r.len}">${dots}</div><div class="chips"><span class="chip">🌱 ${save.seeds}</span>${micBtn()}${soundBtn()}</div></header>
+  <main class="card stage">
+    ${q.mode === 'practice' ? '<span class="tag">Bonus practice</span>' : ''}
+    <div class="nest">${creatureSVG(q.id, shown, { size: 190, cls: shown <= 2 ? 'wobble' : 'bob', hat: save.worn[q.id] })}</div>
+    <p class="bubble">${esc(ui.bubble)}</p>
+    <div class="q"><span>${q.x}</span><span class="op">${opHTML(q.op)}</span><span>${q.y}</span><span>=</span><span class="box ${good ? 'good' : ui.phase === 'ask' ? 'ask' : ''}" id="box">${esc(ui.typed)}</span></div>
+    <p class="tiny">${good ? `+${ui.res.seeds} 🌱${ui.res.quick ? ' &nbsp;Speedy!' : ''}` : `Type the answer, then press Enter${Mic.on ? ', or just say it out loud' : ''}.`}</p>
+    ${Mic.status ? `<p class="tiny warn">${esc(Mic.status)}</p>` : ''}
+  </main>${ui.overlay ? vOverlay() : ''}`;
+}
+function vSummary() {
+  const s = ui.sum, st = E.stats(save, Date.now());
+  const show = (ids, stage) => ids.map(id => `<div class="slot">${creatureSVG(id, stage, { size: 84, hat: save.worn[id] })}<b>${esc(spec(id).name)}</b><span class="f">${factText(id, true)}</span></div>`).join('');
+  const cheer = s.ok === s.asked ? 'A perfect round!' : s.ok >= s.asked * 0.75 ? 'Great hatching!' : 'Good work. Those tricky eggs will come back.';
+  return `<header class="top">${logo()}<div class="chips"><span class="chip">🌱 ${save.seeds}</span><span class="chip">🔥 ${plural(st.streak, 'day')} in a row</span></div></header>
+  <section class="card hero"><div><p class="hello">Round done!</p>
+    <p class="lead">${cheer} You got <b>${s.ok} of ${s.asked}</b> right and earned <b>${plural(s.seeds, 'seed')}</b>.</p>
+    <div class="row" style="margin:0"><button class="btn big" data-act="play">Another round ▶</button><button class="btn" data-act="home">Home</button></div>
+    <p class="tiny">${st.grown} of ${st.total} pets are all grown up. Come back tomorrow to check on your eggs.</p></div></section>
+  ${s.grown.length ? `<section class="card"><h2>All grown up this round</h2><div class="grid">${show(s.grown, 4)}</div></section>` : ''}
+  ${s.hatched.length ? `<section class="card"><h2>New hatchlings</h2><div class="grid">${show(s.hatched, 3)}</div></section>` : ''}`;
+}
+function vBook() {
+  const S = E.SUBJECTS[save.subject];
+  const kinds = save.subject === 'times' ? [['x', 'Times tables']] : [['+', 'Adding'], ['-', 'Subtracting']];
+  const sections = kinds.map(([k, title]) => `<section class="card"><h2>${title}</h2><div class="grid">${S.facts.filter(f => f.kind === k).map(f => {
+    const st = save.facts[f.id].s, body = `${creatureSVG(f.id, st, { size: 80, hat: save.worn[f.id] })}${st >= 3 ? `<b>${esc(spec(f.id).name)}</b>` : `<span class="tiny" style="margin:0">${['Cold egg', 'Warm egg', 'Cracking egg'][st]}</span>`}<span class="f">${factText(f.id, st >= 3)}${st >= 3 ? '' : ' = ?'}</span>`;
+    return st >= 3 ? `<button class="slot s${st}" data-act="pet" data-id="${f.id}">${body}</button>` : `<div class="slot s${st}">${body}</div>`;
+  }).join('')}</div></section>`).join('');
+  let detail = '';
+  if (ui.detail) {
+    const id = ui.detail, st = save.facts[id].s, s = spec(id);
+    const hats = st === 4 ? (save.hats.length ? `<div class="hats"><button class="btn sm ${!save.worn[id] ? 'live' : ''}" data-act="wear" data-hat="">No hat</button>${HATS.filter(h => save.hats.includes(h.id)).map(h => `<button class="btn sm ${save.worn[id] === h.id ? 'live' : ''}" data-act="wear" data-hat="${h.id}">${h.name}</button>`).join('')}</div>` : '<p class="tiny" style="margin-bottom:12px">Buy a hat in the hat shop and it can wear it.</p>') : '<p class="tiny" style="margin-bottom:12px">Hats fit once it is all grown up.</p>';
+    detail = `<div class="veil" data-act="close"><div class="card pop">${creatureSVG(id, st, { size: 180, cls: 'bob', hat: save.worn[id] })}
+      <p class="petname">${esc(s.name)}</p><p class="facts"><b>${factText(id, true)}</b><br>Likes: ${esc(s.hobby)}.<br>Scared of: ${esc(s.fear)}.<br>${st === 4 ? '⭐ All grown up' : '🐣 Hatchling'}</p>${hats}
+      <button class="btn" data-act="close">Close</button></div></div>`;
+  }
+  return backBar('Pet book') + sections + detail;
+}
+function vShop() {
+  const S = E.SUBJECTS[save.subject], model = (S.facts.find(f => save.facts[f.id].s === 4) || S.facts[0]).id;
+  return backBar('Hat shop') + `<section class="card"><p class="lead" style="max-width:none">Spend seeds on hats. Any grown-up pet can wear a hat you own. Pick who wears what in the pet book.</p>
+    <div class="grid">${HATS.map(h => { const own = save.hats.includes(h.id); return `<div class="slot">${creatureSVG(model, 4, { size: 96, hat: h.id })}<b>${h.name}</b>${own ? '<span class="tag">Yours</span>' : `<button class="btn sm" data-act="buy" data-hat="${h.id}" ${save.seeds < h.price ? 'disabled' : ''}>🌱 ${h.price}</button>`}</div>`; }).join('')}</div></section>`;
+}
+function vGrownups() {
+  const now = Date.now(), st = E.stats(save, now), S = E.SUBJECTS[save.subject];
+  const kinds = save.subject === 'times' ? [['x', '×']] : [['+', '+'], ['-', '−']];
+  const nums = Array.from({ length: 10 }, (_, i) => i + 1);
+  const grids = kinds.map(([k, sym]) => `<div><table class="pgrid" aria-label="Progress for ${sym}"><tr><th>${sym}</th>${nums.map(n => `<th>${n}</th>`).join('')}</tr>${nums.map(a => `<tr><th>${a}</th>${nums.map(b => { const id = Math.min(a, b) + k + Math.max(a, b), f = save.facts[id]; return `<td class="s${f.s}c" title="${factText(id, true)}: right ${f.r}, wrong ${f.w}"></td>`; }).join('')}</tr>`).join('')}</table></div>`).join('');
+  const days = Object.keys(save.days).sort().reverse().slice(0, 14);
+  const log = days.length ? `<table class="log"><tr><th>Day</th><th>Rounds</th><th>Questions</th><th>Right</th><th>Hatched</th><th>Memorized</th></tr>${days.map(k => { const d = save.days[k]; return `<tr><td>${k}</td><td>${d.rounds}</td><td>${d.q}</td><td>${d.q ? Math.round(d.ok / d.q * 100) : 0}%</td><td>${d.hatched}</td><td>${d.grown}</td></tr>`; }).join('')}</table>` : '<p class="tiny">No rounds played yet.</p>';
+  const code = btoa(unescape(encodeURIComponent(JSON.stringify(root))));
+  return backBar('For grown-ups') + `
+  <section class="card"><h2>${esc(save.name)}: ${S.name}</h2>
+    <p><b>${st.grown} of ${st.total}</b> facts memorized. ${st.by[3]} nearly there, ${st.by[1] + st.by[2]} being learned, ${st.by[0]} not started. Played on ${plural(st.days, 'day')}; ${st.q ? Math.round(st.ok / st.q * 100) : 0}% right overall.</p>
+    <div class="legend" style="margin-top:12px"><span><i class="s0c"></i>Not started</span><span><i class="s1c"></i>Just met</span><span><i class="s2c"></i>Learning</span><span><i class="s3c"></i>Nearly there</span><span><i class="s4c"></i>Memorized</span></div>
+    <div class="gridwrap">${grids}</div>
+    <p>${st.tricky.length ? 'Trickiest so far: ' + st.tricky.map(id => `<b>${factText(id, true)}</b> (missed ${save.facts[id].w}×)`).join(', ') + '.' : 'No missed facts yet.'}</p>
+  </section>
+  <section class="card"><h2>Day by day</h2>${log}</section>
+  <section class="card"><h2>How it works</h2>
+    <p>A fact counts as memorized when it has been answered correctly on separate days, with the last answer given in under ${E.SOLID_MS / 1000} seconds. Missed facts come back sooner. Memorized facts are checked again after a week, then every three weeks. One round is ${E.ROUND_LEN} questions. A round a day works better than a long session once a week.</p>
+    <p class="tiny">The microphone uses the browser's own speech recognition. In Chrome that sends your child's voice to Google to be turned into text. This game keeps no recordings.</p></section>
+  <section class="card"><h2>Back up or move progress</h2>
+    <p class="tiny" style="margin:0 0 8px">Progress lives in this browser on this computer. Copy this code somewhere safe to back it up (it covers every player). Paste a code and press Load to restore.</p>
+    <textarea id="code" spellcheck="false" aria-label="Save code">${code}</textarea>
+    <div class="row" style="margin:12px 0 0"><button class="btn sm" data-act="copy">Copy code</button><button class="btn sm" data-act="loadcode">Load pasted code</button><button class="btn sm" data-act="erase">${ui.arm === 'erase' ? 'Press again to erase ' + esc(save.name) + ' for good' : 'Erase this player'}</button></div>
+    ${ui.note ? `<p class="tiny">${esc(ui.note)}</p>` : ''}</section>`;
+}
+function vCert() {
+  const S = E.SUBJECTS[save.subject], st = E.stats(save, Date.now());
+  const when = new Date(save.done || Date.now()).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+  return `<header class="top noprint"><button class="btn sm" data-act="home">← Home</button><button class="btn sm" data-act="print">Print</button></header>
+  <section class="card cert"><p class="tag">The Odd Egg Hatchery</p><h2>Certificate of Egg-cellence</h2><p>This proves that</p><p class="who2">${esc(save.name)}</p>
+    <p style="font-size:1.25rem;max-width:34ch;margin:0 auto">has memorized ${S.goal}, and raised ${st.total} very odd pets along the way.</p>
+    <p class="tiny">${when} · ${plural(st.days, 'day')} of hatching · ${st.q} questions answered</p>
+    <div class="parade" style="margin-top:18px">${S.facts.slice(0, 55).map(f => creatureSVG(f.id, 4, { size: 54, hat: save.worn[f.id] })).join('')}</div></section>`;
+}
+function render() {
+  const views = { welcome: vWelcome, who: vWho, home: vHome, round: vRound, summary: vSummary, book: vBook, shop: vShop, grown: vGrownups, cert: vCert };
+  app.innerHTML = views[ui.screen]();
+  const auto = app.querySelector('[autofocus]');
+  if (auto) auto.focus();
+}
+
+/* ---------- buttons and keys ---------- */
+function go(screen) { if (ui.screen === 'round') leaveRound(); ui.screen = screen; ui.detail = null; ui.arm = ''; ui.note = ''; render(); }
+const ACTS = {
+  play: () => startRound(),
+  home: () => go('home'), book: () => go('book'), shop: () => go('shop'), grown: () => go('grown'), cert: () => go('cert'), who: () => go('who'),
+  addplayer: () => go('welcome'),
+  pick: d => { root.cur = Number(d.i); save = root.players[root.cur]; persist(); go('home'); },
+  next: () => closeOverlay(),
+  sound: () => { save.sound = !save.sound; persist(); render(); if (save.sound) sfx('right'); },
+  mic: () => { if (Mic.on) { Mic.stop(); save.mic = false; } else { save.mic = true; Mic.status = ''; Mic.start(); } persist(); render(); },
+  pet: d => { ui.detail = d.id; render(); },
+  close: () => { ui.detail = null; render(); },
+  wear: d => { if (d.hat) save.worn[ui.detail] = d.hat; else delete save.worn[ui.detail]; persist(); render(); },
+  buy: d => { const h = HATS.find(x => x.id === d.hat); if (h && save.seeds >= h.price && !save.hats.includes(h.id)) { save.seeds -= h.price; save.hats.push(h.id); persist(); sfx('buy'); render(); } },
+  print: () => window.print(),
+  copy: () => { const t = document.querySelector('#code'); t.select(); const done = ok => { ui.note = ok ? 'Copied.' : 'Select the code and copy it by hand.'; render(); }; if (navigator.clipboard) navigator.clipboard.writeText(t.value).then(() => done(true), () => done(false)); else done(false); },
+  loadcode: () => {
+    try {
+      const raw = JSON.parse(decodeURIComponent(escape(atob(document.querySelector('#code').value.trim()))));
+      const players = (raw.players || []).map(p => E.repair(p, Date.now())).filter(Boolean);
+      if (!players.length) throw new Error('no players in code');
+      root = { v: 1, cur: Math.min(raw.cur | 0, players.length - 1), players }; save = root.players[root.cur]; persist();
+      ui.note = 'Loaded ' + plural(players.length, 'player') + '.';
+    } catch (err) { ui.note = 'That code did not work. Nothing was changed.'; }
+    render();
+  },
+  erase: () => {
+    if (ui.arm !== 'erase') { ui.arm = 'erase'; render(); return; }
+    root.players.splice(root.cur, 1); root.cur = 0; save = root.players[0] || null; persist();
+    go(save ? 'who' : 'welcome');
+  },
+};
+app.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]');
+  if (!b) return;
+  if (b.dataset.act === 'close' && b.classList.contains('veil') && e.target !== b) return;
+  ACTS[b.dataset.act](b.dataset);
+});
+app.addEventListener('submit', e => {
+  e.preventDefault();
+  const fd = new FormData(e.target), name = String(fd.get('name') || '').trim().slice(0, 16) || 'Keeper';
+  save = E.newSave(Date.now(), fd.get('subject'), name);
+  root.players.push(save); root.cur = root.players.length - 1; persist();
+  go('home');
+});
+document.addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const el = e.target instanceof Element ? e.target : null;
+  if (el && el.closest('input, textarea')) return;
+  if (el && el.closest('button') && (e.key === 'Enter' || e.key === ' ')) return;
+  if (ui.screen === 'round') {
+    if (ui.overlay) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); closeOverlay(); } return; }
+    if (ui.phase === 'ask') {
+      if (/^\d$/.test(e.key)) { if (ui.typed.length < 3) ui.typed += e.key; }
+      else if (e.key === 'Backspace') { e.preventDefault(); ui.typed = ui.typed.slice(0, -1); }
+      else if (e.key === 'Enter') { submit(); return; }
+      else return;
+      const box = document.querySelector('#box');
+      if (box) box.textContent = ui.typed;
+    } else if (e.key === 'Enter') nextQ();
+  } else if (e.key === 'Enter' && (ui.screen === 'home' || ui.screen === 'summary')) startRound();
+  else if (e.key === 'Escape' && ui.detail) ACTS.close();
+});
+window.__hatchery = { ui, Mic, onVoice, get save() { return save; } };
+render();
+})();
+</script>
+</body>
+</html>
