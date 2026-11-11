@@ -237,7 +237,28 @@ const Engine = (() => {
   function newSave(now, subject, name) {
     const facts = {};
     for (const f of SUBJECTS[subject].facts) facts[f.id] = { s: 0, due: 0, seen: 0, r: 0, w: 0, last: 0 };
-    return { id: 'p' + now + Math.floor(Math.random() * 1e6), name: name || 'Keeper', subject, created: now, facts, seeds: 0, stars: 0, seenLevel: 1, owned: [], worn: {}, bed: '', quests: null, bosses: {}, speedBest: 0, speedDay: '', days: {}, badges: [], done: 0, sound: true, mic: false };
+    return { id: 'p' + now + Math.floor(Math.random() * 1e6), name: name || 'Keeper', subject, created: now, facts, seeds: 0, stars: 0, seenLevel: 1, owned: [], worn: {}, bed: '', quests: null, bosses: {}, speedBest: 0, speedDay: '', days: {}, badges: [], done: 0, tracks: {}, sound: true, mic: false };
+  }
+  /* One player can hatch several subjects. Seeds, stars, level, shop items, bed and quests are shared.
+     The active subject's progress sits on the save itself; the others wait in save.tracks. */
+  const TRACK_KEYS = ['facts', 'worn', 'badges', 'bosses', 'done', 'speedBest', 'speedDay'];
+  function freshTrack(subject) {
+    const facts = {};
+    for (const f of SUBJECTS[subject].facts) facts[f.id] = { s: 0, due: 0, seen: 0, r: 0, w: 0, last: 0 };
+    return { facts, worn: {}, badges: [], bosses: {}, done: 0, speedBest: 0, speedDay: '' };
+  }
+  const subjectsOf = save => Object.keys(SUBJECTS).filter(k => k === save.subject || (save.tracks && save.tracks[k]));
+  function switchSubject(save, subject) {
+    if (!SUBJECTS[subject] || subject === save.subject) return save;
+    if (!save.tracks) save.tracks = {};
+    const parked = {};
+    for (const k of TRACK_KEYS) parked[k] = save[k];
+    save.tracks[save.subject] = parked;
+    const next = save.tracks[subject] || freshTrack(subject);
+    delete save.tracks[subject];
+    for (const k of TRACK_KEYS) save[k] = next[k];
+    save.subject = subject;
+    return save;
   }
   function repair(p, now) {
     if (!p || typeof p !== 'object' || !SUBJECTS[p.subject] || typeof p.facts !== 'object') return null;
@@ -263,6 +284,18 @@ const Engine = (() => {
     out.speedBest = Math.max(0, out.speedBest | 0);
     if (typeof out.bed !== 'string') out.bed = '';
     if (out.quests && (typeof out.quests !== 'object' || !Array.isArray(out.quests.list))) out.quests = null;
+    if (typeof out.speedDay !== 'string') out.speedDay = '';
+    out.done = +out.done || 0;
+    const tracks = {};
+    if (p.tracks && typeof p.tracks === 'object') for (const key in p.tracks) {
+      const t = p.tracks[key];
+      if (!SUBJECTS[key] || key === p.subject || !t || typeof t !== 'object') continue;
+      const fixed = repair({ subject: key, name: 'x', stars: 0, facts: t.facts, worn: t.worn, badges: t.badges, bosses: t.bosses, done: t.done, speedBest: t.speedBest, speedDay: t.speedDay }, now);
+      if (!fixed) continue;
+      tracks[key] = {};
+      for (const k of TRACK_KEYS) tracks[key][k] = fixed[k];
+    }
+    out.tracks = tracks;
     out.name = String(out.name).slice(0, 16);
     return out;
   }
@@ -507,7 +540,7 @@ const Engine = (() => {
 
   return { SUBJECTS, NAMES, find, pose, dayStart, dateKey, newSave, repair, startRound, nextQuestion, answer, finishRound, stats, parseSpoken,
     ROUND_LEN, MAX_LEARNERS, FAST_MS, SOLID_MS, QUICK_MS, LEVEL_MAX, SPEED_LEVEL, BOSS_HEARTS, STARS,
-    same, limits, starsFor, levelInfo, ensureQuests, questEvent, miss, bossList, startBoss, bossAnswer, speedPool, speedOpen, speedQuestion, speedFinish };
+    same, limits, switchSubject, subjectsOf, starsFor, levelInfo, ensureQuests, questEvent, miss, bossList, startBoss, bossAnswer, speedPool, speedOpen, speedQuestion, speedFinish };
 })();
 </script>
 
@@ -599,7 +632,7 @@ function persist() {
 }
 let root = loadRoot();
 let save = root.players[root.cur] || null;
-const ui = { screen: save ? (root.players.length > 1 ? 'who' : 'home') : 'welcome', round: null, q: null, typed: '', phase: 'ask', overlay: null, res: null, t0: 0, lock: 0, bubble: '', timer: 0, detail: null, sum: null, arm: '', note: '', shopTab: 'hat', boss: null, speed: null, tick: 0 };
+const ui = { screen: save ? (root.players.length > 1 ? 'who' : 'home') : 'welcome', round: null, q: null, typed: '', phase: 'ask', overlay: null, res: null, t0: 0, lock: 0, bubble: '', timer: 0, detail: null, sum: null, arm: '', note: '', shopTab: 'hat', boss: null, speed: null, tick: 0, more: false };
 
 /* ---------- drawing pets ---------- */
 const COLORS = ['#FF8A5B', '#2BB5A0', '#FFC93C', '#8E7CFF', '#5BC0EB', '#F2779A', '#7BC950', '#FF9F1C', '#C77DFF', '#49B6FF'];
@@ -1031,6 +1064,7 @@ function speedEnd() {
 /* ---------- screens ---------- */
 const soundBtn = () => `<button class="btn sm noprint" data-act="sound" aria-label="Sound ${save.sound ? 'on' : 'off'}">${save.sound ? '🔊' : '🔇'}</button>`;
 const micBtn = () => micOK() ? `<button class="btn sm ${Mic.on ? 'live' : ''}" data-act="mic">🎤 ${Mic.on ? 'Listening' : 'Mic off'}</button>` : '';
+const ICON = { times: '✖️', plusminus: '➕', spell3: '🔤', spell5: '🔠' };
 const logo = () => `<div class="logo">${creatureSVG('7x8', 2, { size: 46 })}<h1>The Odd Egg Hatchery</h1></div>`;
 const backBar = title => `<header class="top"><button class="btn sm noprint" data-act="home">← Home</button><h1>${title}</h1><div class="chips"><span class="chip">🌱 ${save.seeds}</span></div></header>`;
 function avatar(p, size) {
@@ -1053,7 +1087,7 @@ function vWelcome() {
   </section>`;
 }
 function vWho() {
-  const cards = root.players.map((p, i) => { const st = E.stats(p, Date.now()); return `<button class="pcard" data-act="pick" data-i="${i}">${avatar(p, 110)}<b>${esc(p.name)}</b><span>${E.SUBJECTS[p.subject].name}</span><span class="tiny">${st.grown} of ${st.total} grown up</span></button>`; }).join('');
+  const cards = root.players.map((p, i) => { const st = E.stats(p, Date.now()); return `<button class="pcard" data-act="pick" data-i="${i}">${avatar(p, 110)}<b>${esc(p.name)}</b><span>${E.subjectsOf(p).map(k => ICON[k]).join(' ')} ${E.SUBJECTS[p.subject].name}</span><span class="tiny">${st.grown} of ${st.total} grown up</span></button>`; }).join('');
   const add = root.players.length < MAX_PLAYERS ? `<button class="pcard add" data-act="addplayer"><span class="plus">+</span><b>New player</b></button>` : '';
   return `<header class="top">${logo()}</header><section class="card"><h2>Who is hatching today?</h2><div class="who">${cards}${add}</div></section>`;
 }
@@ -1077,9 +1111,15 @@ function vHome() {
   const won = S.groups.filter(g => save.bosses[g.key] && save.bosses[g.key].won).length;
   const bossUI = bosses.length ? bosses.slice(0, 3).map(b => b.canTry ? `<button class="btn" data-act="boss" data-key="${b.key}">👹 Boss egg: ${esc(b.label)}</button>` : `<p class="tiny" style="margin:0">The ${esc(b.label)} boss egg is hiding until tomorrow.</p>`).join('')
     : '<p class="tiny" style="margin:0">Hatch all ten eggs in a set and its boss egg shows up.</p>';
+  const mine = E.subjectsOf(save), others = Object.keys(E.SUBJECTS).filter(k => !mine.includes(k));
+  const tabs = `<nav class="row" style="margin-bottom:16px" aria-label="What to hatch">${mine.map(k => `<button class="btn sm ${k === save.subject ? 'live' : ''}" data-act="subject" data-subject="${k}" ${k === save.subject ? 'aria-current="true"' : ''}>${ICON[k]} ${E.SUBJECTS[k].name}</button>`).join('')}${others.length ? '<button class="btn sm" data-act="more">＋ Hatch something new</button>' : ''}</nav>`;
+  const moreUI = ui.more ? `<div class="veil" data-act="close"><div class="card pop"><p class="shout">Hatch something new</p>
+    <p class="facts">Your seeds, level, outfits and egg bed come with you.</p>
+    <div class="col" style="align-items:stretch">${others.map(k => { const off = E.SUBJECTS[k].facts[0].kind === 'w' && !canSpeak; return `<button class="btn" data-act="subject" data-subject="${k}" ${off ? 'disabled' : ''}>${ICON[k]} <b>${E.SUBJECTS[k].name}</b><br><span class="tiny">${off ? 'This browser cannot read words aloud.' : E.SUBJECTS[k].blurb}</span></button>`; }).join('')}</div>
+    <p style="margin-top:16px"><button class="btn sm" data-act="close">Not now</button></p></div></div>` : '';
   const speedUI = E.speedOpen(save) ? `<button class="btn" data-act="speed">⚡ Speed nest${save.speedBest ? ` (best ${save.speedBest})` : ''}</button>` : `<p class="tiny" style="margin:0">⚡ The speed nest opens at level ${E.SPEED_LEVEL}, once 8 pets have hatched.</p>`;
   return `<header class="top">${logo()}<div class="chips"><span class="chip">⭐ Level ${lv.level}</span><span class="chip">🌱 ${plural(save.seeds, 'seed')}</span><span class="chip">🔥 ${plural(st.streak, 'day')} in a row</span>${soundBtn()}</div></header>
-  ${levelCard()}
+  ${tabs}${levelCard()}
   <section class="card hero"><div>
     <p class="hello">Hi ${esc(save.name)}!</p><p class="lead">${line}</p>
     <button class="btn big" data-act="play">Warm some eggs ▶</button><p class="tiny">or press Enter</p></div>
@@ -1099,7 +1139,7 @@ function vHome() {
   </section>
   <nav class="row"><button class="btn" data-act="book">📖 Pet book</button><button class="btn" data-act="shop">🛍️ Shop</button>${save.done ? '<button class="btn" data-act="cert">🏆 Certificate</button>' : ''}<button class="btn" data-act="who">👥 Switch player</button><button class="btn" data-act="grown">Grown-ups</button></nav>
   ${saveBroken ? '<p class="tiny warn">This browser is not letting the game save. Progress may be lost when you close it.</p>' : ''}
-  <div class="parade">${pets.map((f, i) => `<span style="animation-delay:${-i * 0.23}s" class="bob">${creatureSVG(f.id, save.facts[f.id].s, { size: 76, bed: save.bed, wear: save.worn[f.id] })}</span>`).join('')}</div>`;
+  <div class="parade">${pets.map((f, i) => `<span style="animation-delay:${-i * 0.23}s" class="bob">${creatureSVG(f.id, save.facts[f.id].s, { size: 76, bed: save.bed, wear: save.worn[f.id] })}</span>`).join('')}</div>${moreUI}`;
 }
 function vOverlay() {
   const q = ui.q, o = ui.overlay, s = spec(q.id), res = ui.res;
@@ -1255,6 +1295,7 @@ function vGrownups() {
   const code = btoa(unescape(encodeURIComponent(JSON.stringify(root))));
   return backBar('For grown-ups') + `
   <section class="card"><h2>${esc(save.name)}: ${S.name}</h2>
+    ${E.subjectsOf(save).length > 1 ? `<p class="tiny" style="margin:0 0 10px">${esc(save.name)} is hatching ${E.subjectsOf(save).length} things. This page shows ${S.name}. Switch on the home screen to see the others. Seeds, stars and level are shared.</p>` : ''}
     <p><b>${st.grown} of ${st.total}</b> facts memorized. ${st.by[3]} nearly there, ${st.by[1] + st.by[2]} being learned, ${st.by[0]} not started. Played on ${plural(st.days, 'day')}; ${st.q ? Math.round(st.ok / st.q * 100) : 0}% right overall.</p>
     <p style="margin-top:8px">Level ${E.levelInfo(save.stars).level} with ${plural(save.stars, 'star')}. Boss eggs beaten: ${S.groups.filter(g => save.bosses[g.key] && save.bosses[g.key].won).length} of ${S.groups.length}. Speed nest best: ${save.speedBest}.</p>
     <div class="legend" style="margin-top:12px"><span><i class="s0c"></i>Not started</span><span><i class="s1c"></i>Just met</span><span><i class="s2c"></i>Learning</span><span><i class="s3c"></i>Nearly there</span><span><i class="s4c"></i>Memorized</span></div>
@@ -1288,7 +1329,7 @@ function render() {
 }
 
 /* ---------- buttons and keys ---------- */
-function go(screen) { if (inGame()) leaveGame(); ui.screen = screen; ui.detail = null; ui.arm = ''; ui.note = ''; render(); }
+function go(screen) { if (inGame()) leaveGame(); ui.screen = screen; ui.detail = null; ui.more = false; ui.arm = ''; ui.note = ''; render(); }
 const ACTS = {
   play: () => startRound(),
   home: () => go('home'), book: () => go('book'), shop: () => go('shop'), grown: () => go('grown'), cert: () => go('cert'), who: () => go('who'),
@@ -1298,7 +1339,9 @@ const ACTS = {
   sound: () => { save.sound = !save.sound; persist(); render(); if (save.sound) sfx('right'); },
   mic: () => { if (Mic.on) { Mic.stop(); save.mic = false; } else { save.mic = true; Mic.status = ''; Mic.start(); } persist(); render(); },
   pet: d => { ui.detail = d.id; render(); },
-  close: () => { ui.detail = null; render(); },
+  close: () => { ui.detail = null; ui.more = false; render(); },
+  more: () => { ui.more = true; render(); },
+  subject: d => { E.switchSubject(save, d.subject); persist(); go('home'); },
   wear: d => { const w = save.worn[ui.detail] || (save.worn[ui.detail] = {}); if (d.item) w[d.slot] = d.item; else delete w[d.slot]; persist(); render(); },
   buy: d => { const it = ITEMS.find(x => x.id === d.item); if (it && canBuy(it)) { save.seeds -= it.price; save.owned.push(it.id); if (it.kind === 'bed') save.bed = it.id; persist(); sfx('buy'); render(); } },
   tab: d => { ui.shopTab = d.tab; render(); },
@@ -1356,7 +1399,8 @@ document.addEventListener('keydown', e => {
     if (box) box.textContent = ui.typed;
     return;
   }
-  if (e.key === 'Escape' && ui.detail) { ACTS.close(); return; }
+  if (e.key === 'Escape' && (ui.detail || ui.more)) { ACTS.close(); return; }
+  if (ui.more) return;
   if (ui.screen === 'round' && ui.overlay) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); closeOverlay(); } return; }
   if (e.key !== 'Enter' || Date.now() < ui.lock) return;
   if (ui.screen === 'round') { if (ui.phase === 'feedback') nextQ(); }

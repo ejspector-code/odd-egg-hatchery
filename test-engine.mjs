@@ -322,4 +322,51 @@ test('a save from the first version still loads, keeps its hats, and gets stars 
   assert.ok(q && E.answer(p, round, q, q.ans, 1000, now).correct);
 });
 
+test('one player, several subjects: progress is kept apart, the wallet is shared', () => {
+  const now = new Date(2026, 0, 5, 16).getTime();
+  const save = E.newSave(now, 'times', 'Ada');
+  assert.deepEqual(E.subjectsOf(save), ['times']);
+  const round = E.startRound();
+  let q = E.nextQuestion(save, round, now, seeded(1));
+  E.answer(save, round, q, q.ans, 1000, now);
+  save.owned.push('party'); save.bed = 'straw'; save.worn[q.id] = { hat: 'party' }; save.badges.push('x1');
+  const wallet = () => [save.id, save.name, save.seeds, save.stars, save.seenLevel, save.owned.join(), save.bed, JSON.stringify(save.quests), JSON.stringify(save.days)];
+  const before = wallet(), timesFacts = JSON.stringify(save.facts), timesWorn = JSON.stringify(save.worn);
+
+  E.switchSubject(save, 'spell3');
+  assert.equal(save.subject, 'spell3');
+  assert.deepEqual(E.subjectsOf(save), ['times', 'spell3']);
+  assert.deepEqual(wallet(), before, 'seeds, stars, level, shop items, bed and quests travel with her');
+  assert.equal(Object.keys(save.facts).length, 60);
+  assert.ok(Object.values(save.facts).every(f => f.s === 0));
+  assert.deepEqual([save.worn, save.badges, save.bosses, save.done, save.speedBest], [{}, [], {}, 0, 0]);
+  assert.equal(E.stats(save, now).total, 60);
+
+  q = E.nextQuestion(save, E.startRound(), now, seeded(1));
+  assert.equal(q.kind, 'w');
+  const res = E.answer(save, E.startRound(), q, q.ans, 1000, now);
+  assert.equal(res.event, 'placed');
+  assert.ok(save.seeds > before[2] && save.stars > before[3], 'spelling earns into the same wallet');
+  const spellFacts = JSON.stringify(save.facts);
+
+  E.switchSubject(save, 'times');
+  assert.equal(JSON.stringify(save.facts), timesFacts);
+  assert.equal(JSON.stringify(save.worn), timesWorn);
+  assert.deepEqual(save.badges, ['x1']);
+  assert.deepEqual(E.subjectsOf(save), ['times', 'spell3']);
+  assert.equal(JSON.stringify(save.tracks.spell3.facts), spellFacts);
+  assert.equal(E.switchSubject(save, 'times'), save, 'switching to the same subject changes nothing');
+  assert.equal(E.switchSubject(save, 'nope').subject, 'times');
+
+  const back = E.repair(JSON.parse(JSON.stringify(save)), now);
+  assert.deepEqual(back, save, 'save, close, reopen: nothing lost');
+  const junk = JSON.parse(JSON.stringify(save));
+  junk.tracks.nope = { facts: {} }; junk.tracks.times = { facts: {} }; junk.tracks.spell5 = 'broken'; junk.tracks.spell3.facts['w3:said'].s = 99;
+  const fixed = E.repair(junk, now);
+  assert.deepEqual(Object.keys(fixed.tracks), ['spell3'], 'unknown, duplicate and broken tracks are dropped');
+  assert.equal(fixed.tracks.spell3.facts['w3:said'].s, 4);
+  E.switchSubject(fixed, 'spell3');
+  assert.equal(fixed.facts['w3:said'].s, 4);
+});
+
 console.log(`\n${passed} tests passed`);
