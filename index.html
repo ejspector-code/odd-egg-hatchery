@@ -129,6 +129,20 @@ button{font:inherit;color:inherit}
 .burrow .lip{position:absolute;left:14%;right:14%;bottom:5%;height:19%;background:#C98B48;border:3px solid var(--ink);border-radius:50% 50% 45% 45%;z-index:2}
 .burrow .num{position:absolute;top:6px;left:8px;z-index:3;background:#fff;border:2px solid var(--ink);border-radius:8px;padding:0 7px;font-size:.95rem;line-height:1.4}
 @media (max-width:640px){.arena.field{aspect-ratio:1/1}}
+#arena.memory{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;max-width:540px;margin:4px auto;position:relative}
+.mcard{aspect-ratio:3/4;border:3px solid var(--ink);border-radius:16px;box-shadow:0 4px 0 var(--ink);padding:6px;margin:0;cursor:pointer;font:inherit;color:#fff;display:flex;align-items:center;justify-content:center;
+  background:var(--lav) repeating-linear-gradient(45deg,rgba(255,255,255,.2) 0 10px,transparent 10px 20px)}
+.mcard:hover{filter:brightness(1.06)}
+.mcard:focus-visible{outline:4px solid var(--sky);outline-offset:3px}
+.mcard .back{font-size:clamp(2rem,6vw,3rem);line-height:1;text-shadow:0 3px 0 var(--ink)}
+.mcard .face{display:none;width:88%;line-height:0}
+.mcard .face svg{width:100%;height:auto;display:block}
+.mcard.up{background:#FFFBF2}
+.mcard.up .face{display:block;animation:flip .22s ease-out}
+.mcard.up .back{display:none}
+.mcard.done{background:#D8F5E7;box-shadow:0 2px 0 var(--ink);transform:translateY(2px);cursor:default}
+@keyframes flip{from{transform:scaleX(.1)}to{transform:scaleX(1)}}
+@media (max-width:640px){#arena.memory{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}}
 @keyframes floatup{to{transform:translate(-50%,-170%);opacity:0}}
 .veil{position:fixed;inset:0;background:rgba(59,42,74,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:10;overflow:auto}
 .veil .card{max-width:560px;width:100%;text-align:center;margin:auto}
@@ -1327,6 +1341,52 @@ GAME_UI.pop = {
   key(g, e, down) {
     if (!/^[1-9]$/.test(e.key)) return false;
     if (down && !e.repeat) GAME_UI.pop.hit(g, { n: e.key });
+    return true;
+  },
+};
+
+/* Pet Memory: find the six pairs of pets in as few moves as you can. No timer. */
+GAME_UI.memory = {
+  secs: 0, label: 'Moves',
+  intro: () => `<p>Find the pairs! Flip two cards. If they match, they stay face up.</p>
+    <p class="trick" style="text-align:center">🃏 Every two cards you flip is one move. Try to finish in as few moves as you can. No hurry, there is no timer.</p>
+    <p>Click a card, or move with the <b>arrow keys</b> and press <b>Enter</b>.</p>`,
+  setup(g) {
+    const pets = parkPets(6);
+    g.cards = shuffle([...pets, ...pets].map(p => ({ pid: p.id, name: spec(p.id).name, html: creatureSVG(p.id, p.stage, { wear: p.wear }), up: false, done: false })));
+    g.open = []; g.wait = 0; g.endIn = 0;
+  },
+  html: g => `<div id="arena" class="memory">${g.cards.map((c, i) => `<button class="mcard" data-act="gamehit" data-i="${i}"><span class="face">${c.html}</span><span class="back" aria-hidden="true">?</span></button>`).join('')}</div>`,
+  frame(g, dt, a) {
+    if (g.wait > 0 && (g.wait -= dt) <= 0) { for (const i of g.open) g.cards[i].up = false; g.open = []; }
+    if (g.endIn > 0 && (g.endIn -= dt) <= 0) g.end = true;
+    a.querySelectorAll('.mcard').forEach((el, i) => {
+      const c = g.cards[i], st = c.done ? 'done' : c.up ? 'up' : 'down';
+      if (el.dataset.s === st) return;
+      el.dataset.s = st;
+      el.classList.toggle('up', st !== 'down');
+      el.classList.toggle('done', st === 'done');
+      el.setAttribute('aria-label', st === 'down' ? `Card ${i + 1}, face down` : `Card ${i + 1}: ${c.name}${st === 'done' ? ', matched' : ''}`);
+    });
+  },
+  hit(g, d) {
+    const c = g.cards[d.i | 0];
+    if (!c || c.up || c.done || g.wait > 0 || g.endIn > 0) return;
+    c.up = true; g.open.push(d.i | 0);
+    if (g.open.length < 2) return;
+    g.score++;
+    const [x, y] = g.open.map(i => g.cards[i]);
+    if (x.pid === y.pid) { x.done = y.done = true; g.open = []; sfx('right'); if (g.cards.every(k => k.done)) g.endIn = 700; }
+    else g.wait = 900; // a miss stays face up for a moment, then flips back
+  },
+  key(g, e, down) {
+    const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: 'up', ArrowDown: 'down' }[e.key];
+    if (!step) return false;
+    if (!down) return true;
+    const cards = [...document.querySelectorAll('#arena .mcard')];
+    if (!cards.length) return true;
+    const cols = getComputedStyle(cards[0].parentElement).gridTemplateColumns.split(' ').length, cur = cards.indexOf(document.activeElement);
+    cards[cur < 0 ? 0 : clamp(cur + (step === 'up' ? -cols : step === 'down' ? cols : step), 0, cards.length - 1)].focus();
     return true;
   },
 };
