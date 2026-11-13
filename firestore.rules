@@ -1,0 +1,21 @@
+rules_version = '2';
+// Each kid can read and write only her own save, its daily backups, and copies kept after a sync clash.
+// Nobody can list, read or change anyone else's save. Nothing can be deleted from the game.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function mine(uid) { return request.auth != null && request.auth.uid == uid; }
+    function saveOK() {
+      return request.resource.data.save is string && request.resource.data.save.size() < 900000;
+    }
+
+    match /saves/{uid} {
+      allow get: if mine(uid);
+      allow create, update: if mine(uid) && saveOK() && request.resource.data.rev is int;
+
+      match /{kind}/{id} {
+        allow read: if mine(uid) && kind in ['backups', 'dropped'];
+        allow create, update: if mine(uid) && kind in ['backups', 'dropped'] && saveOK();
+      }
+    }
+  }
+}
