@@ -165,8 +165,11 @@ test('saved progress survives a round trip and bad data is rejected', () => {
   const back = E.repair(JSON.parse(JSON.stringify(save)), Date.now());
   assert.deepEqual(back.facts, save.facts);
   assert.equal(back.seeds, save.seeds);
-  assert.equal(E.repair({ subject: 'nope', facts: {} }, 0), null);
+  const newer = E.repair({ subject: 'nope', facts: {} }, 0);
+  assert.equal(newer.subject, 'times', 'a subject from a newer version is parked, not rejected');
+  assert.deepEqual(newer.tracks.nope, { facts: {} });
   assert.equal(E.repair(null, 0), null);
+  assert.equal(E.repair({ subject: 'times' }, 0), null);
   const patched = E.repair({ subject: 'times', name: 'x', facts: { '7x8': { s: 99 } } }, 0);
   assert.equal(patched.facts['7x8'].s, 4);
   assert.equal(Object.keys(patched.facts).length, 55);
@@ -363,7 +366,8 @@ test('one player, several subjects: progress is kept apart, the wallet is shared
   const junk = JSON.parse(JSON.stringify(save));
   junk.tracks.nope = { facts: {} }; junk.tracks.times = { facts: {} }; junk.tracks.spell5 = 'broken'; junk.tracks.spell3.facts['w3:said'].s = 99;
   const fixed = E.repair(junk, now);
-  assert.deepEqual(Object.keys(fixed.tracks), ['spell3'], 'unknown, duplicate and broken tracks are dropped');
+  assert.deepEqual(Object.keys(fixed.tracks), ['spell3', 'nope'], 'duplicate and broken tracks are dropped; tracks this version does not know are kept');
+  assert.deepEqual(fixed.tracks.nope, { facts: {} });
   assert.equal(fixed.tracks.spell3.facts['w3:said'].s, 4);
   E.switchSubject(fixed, 'spell3');
   assert.equal(fixed.facts['w3:said'].s, 4);
@@ -428,7 +432,7 @@ test('pet park saves: old saves get no tickets, bad data is fixed, tickets trave
   const p = E.repair(old, now);
   assert.deepEqual([p.tickets, p.arcade], [0, { best: {} }]);
   const j = E.repair(Object.assign(JSON.parse(JSON.stringify(save)), { tickets: -4, arcade: { best: { catch: 'x', pop: 7.6, memory: -2, nope: 5 } } }), now);
-  assert.deepEqual([j.tickets, j.arcade], [0, { best: { pop: 7 } }]);
+  assert.deepEqual([j.tickets, j.arcade], [0, { best: { pop: 7, nope: 5 } }], 'bad bests are dropped; a game this version does not know keeps its best');
   assert.deepEqual(E.repair(JSON.parse(JSON.stringify(j)), now), j, 'loading twice changes nothing');
   assert.deepEqual(E.repair(Object.assign(JSON.parse(JSON.stringify(save)), { arcade: 'broken' }), now).arcade, { best: {} });
   save.tickets = 3; save.arcade.best.catch = 20;
@@ -450,6 +454,96 @@ test('pet park pets: most grown first, current subject first, outfits from every
     { id: 'w3:they', stage: 2, wear: {} },
     { id: '2x3', stage: 1, wear: {} },
   ]);
+});
+
+test('a save from a newer version keeps everything this version does not know', () => {
+  const now = Date.UTC(2026, 10, 13, 12);
+  // known open subject, with a newer subject parked, a newer field on a known track, and newer fields on facts
+  const s = E.newSave(now, 'times', 'Rae');
+  E.switchSubject(s, 'spell3');
+  s.tracks.times.checkup = { day: '2026-11-01', score: 7 };
+  s.tracks.times.facts['6x7'].streak = 3;
+  s.facts['w3:said'].hint = 'slowly';
+  const frac = { facts: { 'f:1/2': { s: 2, due: 5, extra: true } }, worn: {}, badges: ['f1'], bosses: {}, done: 0, speedBest: 4, speedDay: '', checkup: { n: 1 } };
+  s.tracks.frac = JSON.parse(JSON.stringify(frac));
+  const a = E.repair(JSON.parse(JSON.stringify(s)), now);
+  assert.deepEqual(a.tracks.frac, frac, 'a newer subject waits untouched');
+  assert.deepEqual(a.tracks.times.checkup, { day: '2026-11-01', score: 7 });
+  assert.equal(a.tracks.times.facts['6x7'].streak, 3);
+  assert.equal(a.facts['w3:said'].hint, 'slowly');
+  assert.deepEqual(E.subjectsOf(a), ['times', 'spell3'], 'the newer subject is never shown');
+  assert.deepEqual(E.repair(JSON.parse(JSON.stringify(a)), now), a, 'repairing twice changes nothing');
+
+  // a newer subject is the one that was open: it is parked, and a subject this version knows opens instead
+  const b = JSON.parse(JSON.stringify(s));
+  b.subject = 'div'; b.facts = { 'd:6/3': { s: 3, due: 9, extra: 1 } }; b.worn = { 'd:6/3': { hat: 'cap' } }; b.badges = ['d1']; b.bosses = {}; b.done = 0; b.speedBest = 2; b.speedDay = 'x';
+  delete b.tracks.frac;
+  const r = E.repair(JSON.parse(JSON.stringify(b)), now);
+  assert.ok(r, 'not thrown away');
+  assert.equal(r.subject, 'times', 'opens the first parked subject this version knows');
+  assert.deepEqual(r.tracks.div, { facts: { 'd:6/3': { s: 3, due: 9, extra: 1 } }, worn: { 'd:6/3': { hat: 'cap' } }, badges: ['d1'], bosses: {}, done: 0, speedBest: 2, speedDay: 'x' });
+  assert.equal(r.facts['6x7'].streak, 3, 'the opened subject keeps its own facts');
+  assert.deepEqual(Object.keys(r.tracks), ['div'], 'the opened subject leaves the parked list');
+  assert.equal(r.stars, s.stars); assert.equal(r.seeds, s.seeds); assert.equal(r.name, 'Rae');
+  assert.deepEqual(E.repair(JSON.parse(JSON.stringify(r)), now), r, 'repairing twice changes nothing');
+
+  // a newer subject with nothing this version knows parked: a fresh first subject opens
+  const c = E.repair({ id: 'p1', name: 'Rae', subject: 'div', facts: { 'd:6/3': { s: 1 } }, stars: 30, tracks: {} }, now);
+  assert.equal(c.subject, Object.keys(E.SUBJECTS)[0]);
+  assert.deepEqual(c.tracks.div.facts, { 'd:6/3': { s: 1 } });
+  assert.equal(c.stars, 30);
+  assert.equal(E.repair({ name: 'x', facts: {} }, now), null, 'no subject at all is still not a save');
+});
+
+test('cloud: loginOf turns a name into a login', () => {
+  assert.equal(E.loginOf('Layla'), 'layla');
+  assert.equal(E.loginOf('  Layla S! '), 'laylas');
+  assert.equal(E.loginOf('Rae2'), 'rae2');
+  assert.equal(E.loginOf('Zoë'), 'zo', 'only a-z and 0-9 are kept');
+  assert.equal(E.loginOf('🐣🐣'), '');
+  assert.equal(E.loginOf(''), '');
+  assert.equal(E.loginOf(undefined), '');
+  assert.equal(E.loginOf('abcdefghijklmnopqrstuvwxyz'), 'abcdefghijklmnop', 'cut to 16');
+});
+
+test('cloud: PIN, email and password', () => {
+  for (const ok of ['0000', '1234', '9876']) assert.equal(E.pinOK(ok), true, ok);
+  for (const bad of ['123', '12345', '12a4', ' 1234', '', undefined, 1234]) assert.equal(E.pinOK(bad), false, String(bad));
+  assert.equal(E.loginEmail('layla'), 'layla@players.odd-egg-hatchery.invalid');
+  assert.equal(E.pinPassword('1234'), 'egg-1234-hatch');
+});
+
+test('cloud: localWins keeps the copy with more progress', () => {
+  const now = Date.UTC(2026, 10, 13, 12);
+  const a = E.newSave(now, 'times', 'A'), b = E.newSave(now, 'times', 'A');
+  assert.deepEqual(E.progressOf(a), { stars: 0, q: 0 });
+  a.stars = 50; b.stars = 40;
+  assert.equal(E.localWins(a, b), true, 'more stars wins');
+  assert.equal(E.localWins(b, a), false);
+  b.stars = 50;
+  a.days = { '2026-11-12': { q: 10, ok: 8, rounds: 1, hatched: 0, grown: 0 } };
+  b.days = { '2026-11-12': { q: 5, ok: 5, rounds: 1, hatched: 0, grown: 0 }, '2026-11-13': { q: 3, ok: 3, rounds: 1, hatched: 0, grown: 0 } };
+  assert.deepEqual(E.progressOf(b), { stars: 50, q: 8 });
+  assert.equal(E.localWins(a, b), true, 'a star tie goes to more questions answered');
+  b.days['2026-11-13'].q = 5;
+  assert.equal(E.localWins(a, b), false, 'a full tie keeps the cloud copy');
+});
+
+test('cloud: syncPlan decides what to do with a save', () => {
+  const now = Date.UTC(2026, 10, 13, 12);
+  const more = Object.assign(E.newSave(now, 'times', 'A'), { stars: 90 });
+  const less = Object.assign(E.newSave(now, 'times', 'A'), { stars: 10 });
+  const doc = (rev, save) => ({ rev, save });
+  assert.deepEqual(E.syncPlan({ rev: 0, dirty: true }, null, less), { act: 'push' }, 'nothing in the cloud yet');
+  assert.deepEqual(E.syncPlan({ rev: 0, dirty: false }, null, less), { act: 'push' });
+  assert.deepEqual(E.syncPlan({ rev: 2, dirty: false, force: true }, doc(5, more), less), { act: 'push', force: true, drop: 'cloud' }, 'a restore always goes up, and the copy it replaces is kept');
+  assert.deepEqual(E.syncPlan({ rev: 5, dirty: false }, doc(5, more), less), { act: 'none' });
+  assert.deepEqual(E.syncPlan({ rev: 5, dirty: true }, doc(5, more), less), { act: 'push' });
+  assert.deepEqual(E.syncPlan({ rev: 4, dirty: false }, doc(5, less), more), { act: 'take' }, 'a stale computer takes the newer cloud copy');
+  assert.deepEqual(E.syncPlan({ rev: 4, dirty: true }, doc(5, less), more), { act: 'push', force: true, drop: 'cloud' }, 'both changed: more stars here');
+  assert.deepEqual(E.syncPlan({ rev: 4, dirty: true }, doc(5, more), less), { act: 'take', drop: 'local' }, 'both changed: more stars in the cloud');
+  assert.deepEqual(E.syncPlan({ rev: 7, dirty: false }, doc(5, more), less), { act: 'push', force: true, drop: 'cloud' }, 'this computer is ahead of the cloud: the cloud copy is kept before it is replaced');
+  assert.deepEqual(E.syncPlan({ rev: 0, dirty: true, force: true }, null, less), { act: 'push' }, 'a restore with nothing in the cloud has nothing to keep');
 });
 
 console.log(`\n${passed} tests passed`);

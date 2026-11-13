@@ -55,7 +55,8 @@ button{font:inherit;color:inherit}
 .plus{font-size:3rem;line-height:1}
 .form{display:flex;flex-direction:column;gap:16px;max-width:520px}
 .form label{font-size:1.1rem}
-.form input[type=text]{font:inherit;font-size:1.4rem;padding:.4em .6em;border:3px solid var(--ink);border-radius:14px;width:100%;margin-top:6px;background:#fff;color:var(--ink)}
+.form input[type=text],.form input[type=password]{font:inherit;font-size:1.4rem;padding:.4em .6em;border:3px solid var(--ink);border-radius:14px;width:100%;margin-top:6px;background:#fff;color:var(--ink)}
+.form input.pin{display:block;letter-spacing:.4em;max-width:8em}
 .pick{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .pick label{display:block;border:3px solid var(--ink);border-radius:16px;padding:12px;cursor:pointer;background:#fff}
 .pick input{position:absolute;opacity:0}
@@ -306,13 +307,16 @@ const Engine = (() => {
     save.subject = subject;
     return save;
   }
+  /* Saves now travel between computers, and a computer may run an older copy of the game than the save came from.
+     So anything this version does not know (a newer subject, a newer field) is carried through untouched, never dropped. */
   function repair(p, now) {
-    if (!p || typeof p !== 'object' || !SUBJECTS[p.subject] || typeof p.facts !== 'object') return null;
+    if (!p || typeof p !== 'object' || typeof p.subject !== 'string' || !p.facts || typeof p.facts !== 'object') return null;
+    if (!SUBJECTS[p.subject]) return repair(parkNewer(p), now);
     const base = newSave(now, p.subject, p.name);
     const out = Object.assign(base, p, { facts: base.facts });
     for (const id in base.facts) {
       const old = p.facts[id];
-      if (old && typeof old === 'object') out.facts[id] = { s: Math.max(0, Math.min(4, old.s | 0)), due: +old.due || 0, seen: old.seen ? 1 : 0, r: old.r | 0, w: old.w | 0, last: +old.last || 0 };
+      if (old && typeof old === 'object') out.facts[id] = Object.assign({}, old, { s: Math.max(0, Math.min(4, old.s | 0)), due: +old.due || 0, seen: old.seen ? 1 : 0, r: old.r | 0, w: old.w | 0, last: +old.last || 0 });
     }
     for (const k of ['owned', 'badges']) if (!Array.isArray(out[k])) out[k] = [];
     for (const k of ['worn', 'days', 'bosses']) if (!out[k] || typeof out[k] !== 'object') out[k] = {};
@@ -333,21 +337,36 @@ const Engine = (() => {
     if (typeof out.speedDay !== 'string') out.speedDay = '';
     out.done = +out.done || 0;
     out.tickets = Math.max(0, out.tickets | 0);
-    const oldBest = p.arcade && typeof p.arcade === 'object' && p.arcade.best && typeof p.arcade.best === 'object' ? p.arcade.best : {};
-    out.arcade = { best: {} };
-    for (const g of GAMES) if ((oldBest[g.id] | 0) > 0) out.arcade.best[g.id] = oldBest[g.id] | 0;
+    // bests for the games this version knows are checked; anything else in arcade (a newer game) is carried through
+    const oldArcade = p.arcade && typeof p.arcade === 'object' ? p.arcade : {};
+    out.arcade = Object.assign({}, oldArcade, { best: Object.assign({}, oldArcade.best && typeof oldArcade.best === 'object' ? oldArcade.best : {}) });
+    for (const g of GAMES) { const v = out.arcade.best[g.id] | 0; if (v > 0) out.arcade.best[g.id] = v; else delete out.arcade.best[g.id]; }
     const tracks = {};
     if (p.tracks && typeof p.tracks === 'object') for (const key in p.tracks) {
       const t = p.tracks[key];
-      if (!SUBJECTS[key] || key === p.subject || !t || typeof t !== 'object') continue;
+      if (key === p.subject || !t || typeof t !== 'object') continue;
+      if (!SUBJECTS[key]) { tracks[key] = t; continue; }
       const fixed = repair({ subject: key, name: 'x', stars: 0, facts: t.facts, worn: t.worn, badges: t.badges, bosses: t.bosses, done: t.done, speedBest: t.speedBest, speedDay: t.speedDay }, now);
       if (!fixed) continue;
-      tracks[key] = {};
+      tracks[key] = Object.assign({}, t);
       for (const k of TRACK_KEYS) tracks[key][k] = fixed[k];
     }
     out.tracks = tracks;
     out.name = String(out.name).slice(0, 16);
     return out;
+  }
+  // The open subject is one this version does not know: park it as it is, and open one it does know (like switchSubject).
+  function parkNewer(p) {
+    const tracks = Object.assign({}, p.tracks && typeof p.tracks === 'object' ? p.tracks : {});
+    const parked = {};
+    for (const k of TRACK_KEYS) if (k in p) parked[k] = p[k];
+    tracks[p.subject] = parked;
+    const open = Object.keys(tracks).find(k => SUBJECTS[k] && tracks[k] && typeof tracks[k] === 'object' && tracks[k].facts && typeof tracks[k].facts === 'object');
+    const subject = open || Object.keys(SUBJECTS)[0], next = open ? tracks[open] : freshTrack(subject);
+    delete tracks[subject];
+    const q = Object.assign({}, p, { subject, tracks });
+    for (const k of TRACK_KEYS) q[k] = next[k];
+    return q;
   }
 
   function startRound() { return { asked: 0, len: ROUND_LEN, learners: [], retries: [], lastId: null, ok: 0, hatched: [], grown: [], seeds: 0 }; }
@@ -631,10 +650,125 @@ const Engine = (() => {
     return out.length ? out[out.length - 1] : null;
   }
 
-  return { SUBJECTS, NAMES, find, pose, dayStart, dateKey, newSave, repair, startRound, nextQuestion, answer, finishRound, stats, parseSpoken,
+  /* ---------- cloud saves ----------
+     A kid logs in with her name and a 4-digit PIN. Firebase wants an email and a longer password, so both are made
+     here and never shown. Which copy wins when two computers disagree is decided here too, so it can be tested. */
+  const loginOf = name => String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16);
+  const pinOK = pin => typeof pin === 'string' && /^\d{4}$/.test(pin);
+  const loginEmail = login => login + '@players.odd-egg-hatchery.invalid';
+  const pinPassword = pin => 'egg-' + pin + '-hatch';
+  function progressOf(save) {
+    let q = 0;
+    for (const k in save.days || {}) q += save.days[k].q | 0;
+    return { stars: save.stars | 0, q };
+  }
+  // Stars only ever go up, so more stars means more played. A full tie keeps the cloud copy.
+  function localWins(local, cloud) {
+    const a = progressOf(local), b = progressOf(cloud);
+    return a.stars !== b.stars ? a.stars > b.stars : a.q > b.q;
+  }
+  /* link: what this computer knows ({ rev it last synced, dirty: changed since, force: a restore to upload })
+     doc: the cloud copy ({ rev, save }) or null. Returns what to do: push, take the cloud copy, or nothing,
+     plus which copy to keep aside first when the two disagree. */
+  function syncPlan(link, doc, local) {
+    if (!doc) return { act: 'push' };
+    if (link.force || link.rev > doc.rev) return { act: 'push', force: true, drop: 'cloud' };
+    if (link.rev === doc.rev) return { act: link.dirty ? 'push' : 'none' };
+    if (!link.dirty) return { act: 'take' };
+    return localWins(local, doc.save) ? { act: 'push', force: true, drop: 'cloud' } : { act: 'take', drop: 'local' };
+  }
+
+  return { SUBJECTS, NAMES, loginOf, pinOK, loginEmail, pinPassword, progressOf, localWins, syncPlan, find, pose, dayStart, dateKey, newSave, repair, startRound, nextQuestion, answer, finishRound, stats, parseSpoken,
     ROUND_LEN, MAX_LEARNERS, FAST_MS, SOLID_MS, QUICK_MS, LEVEL_MAX, SPEED_LEVEL, BOSS_HEARTS, STARS,
     same, limits, switchSubject, subjectsOf, starsFor, levelInfo, ensureQuests, questEvent, miss, bossList, startBoss, bossAnswer, speedPool, speedOpen, speedQuestion, speedFinish,
     GAMES, gamesOpen, startGame, gameFinish, petRoster };
+})();
+</script>
+
+<script id="cloud">
+/* Cloud saves through Firebase (project odd-egg-hatchery). The SDK loads only when a player uses the cloud.
+   Each kid gets her own Firebase app instance, so two sisters stay logged in on one computer at the same time.
+   Every call rejects with { code } where code is offline, wrong, taken, throttled, nosession or other. */
+const Cloud = (() => {
+  'use strict';
+  const CONFIG = { apiKey: 'AIzaSyB2jtWu5f-1dohopS9qQOyrEMlKxlvxVw4', authDomain: 'odd-egg-hatchery.firebaseapp.com', projectId: 'odd-egg-hatchery', appId: '1:526328327508:web:9c2cdf0ee2c95505b22cc1' };
+  const SDK = 'https://www.gstatic.com/firebasejs/13.1.0/';
+  const CODES = {
+    'auth/invalid-credential': 'wrong', 'auth/invalid-login-credentials': 'wrong', 'auth/wrong-password': 'wrong', 'auth/user-not-found': 'wrong',
+    'auth/email-already-in-use': 'taken', 'auth/too-many-requests': 'throttled', 'auth/network-request-failed': 'offline',
+    unavailable: 'offline', 'deadline-exceeded': 'offline', 'permission-denied': 'nosession', unauthenticated: 'nosession',
+  };
+  const err = code => ({ code, cloud: true });
+  function toErr(e) {
+    if (e && e.cloud) return e;
+    const code = (e && CODES[e.code]) || (navigator.onLine === false ? 'offline' : 'other');
+    console.warn('[Hatchery] cloud:', code, e && (e.code || e.message));
+    return err(code);
+  }
+  let sdk = null;
+  const load = () => sdk || (sdk = Promise.all(['firebase-app', 'firebase-auth', 'firebase-firestore-lite'].map(n => import(SDK + n + '.js')))
+    .then(([app, auth, fs]) => ({ app, auth, fs }), e => { sdk = null; console.warn('[Hatchery] cloud: could not load Firebase', e); throw err('offline'); }));
+
+  const apps = {};
+  async function session(login) {
+    const { app, auth } = await load(), name = 'p-' + login;
+    const a = apps[login] || (apps[login] = app.getApps().find(x => x.name === name) || app.initializeApp(CONFIG, name));
+    const au = auth.getAuth(a);
+    await au.authStateReady();
+    return au;
+  }
+  async function signedIn(login) {
+    const au = await session(login);
+    if (!au.currentUser) throw err('nosession');
+    const { fs } = await load();
+    return { uid: au.currentUser.uid, db: fs.getFirestore(apps[login]), fs };
+  }
+  const guard = fn => async (...args) => { try { return await fn(...args); } catch (e) { throw toErr(e); } };
+
+  return {
+    load,
+    signUp: guard(async (login, pin) => {
+      const au = await session(login), { auth } = await load();
+      const c = await auth.createUserWithEmailAndPassword(au, Engine.loginEmail(login), Engine.pinPassword(pin));
+      return { uid: c.user.uid };
+    }),
+    signIn: guard(async (login, pin) => {
+      const au = await session(login), { auth } = await load();
+      const c = await auth.signInWithEmailAndPassword(au, Engine.loginEmail(login), Engine.pinPassword(pin));
+      return { uid: c.user.uid };
+    }),
+    hasSession: guard(async login => !!(await session(login)).currentUser),
+    pull: guard(async login => {
+      const { uid, db, fs } = await signedIn(login);
+      const snap = await fs.getDoc(fs.doc(db, 'saves', uid));
+      if (!snap.exists()) return null;
+      const d = snap.data();
+      return { rev: d.rev, save: d.save, stars: d.stars };
+    }),
+    // Uploads unless the cloud moved on since baseRev (then hands back the cloud copy). Keeps one backup a day.
+    push: guard(async (login, text, baseRev, force) => {
+      const { uid, db, fs } = await signedIn(login), meta = JSON.parse(text);
+      const ref = fs.doc(db, 'saves', uid), bref = fs.doc(db, 'saves', uid, 'backups', Engine.dateKey(Date.now()));
+      return fs.runTransaction(db, async tx => {
+        const cur = await tx.get(ref), back = await tx.get(bref), d = cur.exists() ? cur.data() : null;
+        if (!force && d && d.rev !== baseRev) return { conflict: { rev: d.rev, save: d.save } };
+        const rev = (d ? d.rev : 0) + 1;
+        tx.set(ref, { login, name: String(meta.name || ''), stars: meta.stars | 0, rev, save: text, updated: fs.serverTimestamp() });
+        // the day's backup is the save as it was before the day's first upload
+        if (!back.exists()) tx.set(bref, d ? { rev: d.rev, save: d.save, updated: fs.serverTimestamp() } : { rev, save: text, updated: fs.serverTimestamp() });
+        return { rev };
+      });
+    }),
+    // Keeps a copy that lost a clash, so a grown-up can bring it back.
+    keep: guard(async (login, text) => {
+      const { uid, db, fs } = await signedIn(login);
+      await fs.setDoc(fs.doc(db, 'saves', uid, 'dropped', String(Date.now())), { save: text, updated: fs.serverTimestamp() });
+    }),
+    forget: guard(async login => {
+      const au = await session(login), { auth } = await load();
+      await auth.signOut(au);
+    }),
+  };
 })();
 </script>
 
@@ -714,19 +848,119 @@ function loadRoot() {
     const raw = JSON.parse(localStorage.getItem(KEY));
     if (raw && Array.isArray(raw.players)) {
       const players = raw.players.map(p => E.repair(p, Date.now())).filter(Boolean);
-      return { v: 1, cur: Math.min(raw.cur | 0, Math.max(0, players.length - 1)), players };
+      // cloud links: player id -> { login, rev last synced, dirty: changed since, force: a restore to upload }
+      const cloud = {};
+      if (raw.cloud && typeof raw.cloud === 'object') for (const p of players) {
+        const l = raw.cloud[p.id];
+        if (l && typeof l.login === 'string' && l.login && E.loginOf(l.login) === l.login) cloud[p.id] = { login: l.login, rev: l.rev | 0, dirty: !!l.dirty, force: !!l.force };
+      }
+      return { v: 1, cur: Math.min(raw.cur | 0, Math.max(0, players.length - 1)), players, cloud };
     }
   } catch (err) { console.warn('[Hatchery] Could not read saved progress:', err); }
-  return { v: 1, cur: 0, players: [] };
+  return { v: 1, cur: 0, players: [], cloud: {} };
 }
 let saveBroken = false;
-function persist() {
+function writeLocal() {
   try { localStorage.setItem(KEY, JSON.stringify(root)); saveBroken = false; }
   catch (err) { saveBroken = true; console.warn('[Hatchery] Could not save progress:', err); }
 }
+// Every change to a player goes through here: saved on this computer now, and in the cloud a moment later.
+function persist() {
+  const link = save && root.cloud[save.id];
+  if (link) { link.dirty = true; edits[save.id] = (edits[save.id] | 0) + 1; }
+  writeLocal();
+  if (link) syncSoon(save.id);
+}
+
+/* ---------- cloud syncing ---------- */
+const edits = {}, timers = {}, syncing = {};
+const playerById = id => root.players.find(p => p.id === id);
+function syncSoon(id) { clearTimeout(timers[id]); timers[id] = setTimeout(() => syncPlayer(id), 2000); }
+function syncAll() { for (const id in root.cloud) syncPlayer(id); }
+function setCloudStatus(id, st) {
+  if ((ui.cloud[id] || '') === st || st === 'busy') return;
+  ui.cloud[id] = st;
+  if (ui.screen === 'who' || ui.screen === 'home' || ui.screen === 'grown') render();
+}
+// One sync at a time per player. A change made while one runs makes it go round once more.
+function syncPlayer(id) {
+  if (syncing[id]) { syncing[id].again = true; return syncing[id].p; }
+  const s = syncing[id] = { again: false };
+  s.p = (async () => {
+    try { do { s.again = false; await syncOnce(id); } while (s.again); }
+    finally { delete syncing[id]; }
+  })();
+  return s.p;
+}
+/* Pull, decide (E.syncPlan), act. Anything can change while a cloud call is out (an answer, a restore, a new
+   player list), so after every await the plan is made again from what is true now. Uploads only land on top
+   of the cloud copy they were planned against; if the cloud moved meanwhile, plan again. */
+async function syncOnce(id) {
+  const first = root.cloud[id];
+  if (!first || !playerById(id)) return;
+  try {
+    let doc = await Cloud.pull(first.login);
+    pulledAt[id] = Date.now();
+    for (let tries = 0; tries < 6; tries++) {
+      const link = root.cloud[id], local = playerById(id);
+      if (!link || !local) return;
+      const n = edits[id] | 0, moved = () => (edits[id] | 0) !== n || playerById(id) !== local || root.cloud[id] !== link;
+      const cloudSave = doc && E.repair(JSON.parse(doc.save), Date.now());
+      const plan = E.syncPlan(link, cloudSave && { rev: doc.rev, save: cloudSave }, local);
+      if (plan.act === 'none') break;
+      if (plan.act === 'take' && inGame() && save && save.id === id) break; // never mid-game; the sync after it sorts this out
+      if (plan.drop) {
+        await Cloud.keep(link.login, plan.drop === 'local' ? JSON.stringify(local) : doc.save);
+        if (moved()) continue;
+      }
+      if (plan.act === 'take') { applyCloud(id, cloudSave, doc.rev); break; }
+      const text = JSON.stringify(local);
+      const r = await Cloud.push(link.login, text, doc ? doc.rev : 0, false);
+      if (r.conflict) { doc = r.conflict; continue; }
+      link.rev = r.rev;
+      doc = { rev: r.rev, save: text };
+      if (moved()) { link.dirty = true; writeLocal(); continue; }
+      link.dirty = false; link.force = false;
+      writeLocal();
+      break;
+    }
+    setCloudStatus(id, '');
+  } catch (e) {
+    setCloudStatus(id, e && e.code === 'nosession' ? 'pin' : 'offline');
+  }
+}
+/* Puts the cloud copy in place of this computer's copy. Never swaps the save in the middle of a game:
+   that copy stays here, and the next sync sorts it out (and keeps the losing copy in the cloud). */
+function applyCloud(id, cloudSave, rev) {
+  if (inGame() && save && save.id === id) return false;
+  const i = root.players.findIndex(p => p.id === id), link = root.cloud[id];
+  if (i < 0 || !link) return false;
+  if (cloudSave.id !== id) { delete root.cloud[id]; root.cloud[cloudSave.id] = link; }
+  root.players[i] = cloudSave;
+  if (save && save.id === id) { save = cloudSave; ui.detail = null; } // the open pet may not exist in the new copy
+  link.rev = rev; link.dirty = false; link.force = false;
+  writeLocal();
+  if (!inGame() && ['who', 'home', 'book', 'shop'].includes(ui.screen)) render(); // not grown-ups: it would wipe a pasted code
+  return true;
+}
+// A linked player who has not heard from the cloud in a while waits (up to 3 seconds) for the newest copy before a game starts.
+const pulledAt = {};
+let freshWait = false;
+function fresh(start) {
+  const id = save && root.cloud[save.id] ? save.id : null;
+  if (!id || Date.now() - (pulledAt[id] || 0) < 30000) return start();
+  if (freshWait) return;
+  freshWait = true;
+  Promise.race([syncPlayer(id), new Promise(r => setTimeout(r, 3000))]).then(() => {
+    freshWait = false;
+    if (!inGame() || (ui.screen === 'speed' && ui.speed && ui.speed.phase === 'ready')) start();
+  });
+}
+// The end of a game uploads at once, so closing the laptop right after still gets it to the cloud.
+function syncNow() { if (save && root.cloud[save.id]) { clearTimeout(timers[save.id]); syncPlayer(save.id); } }
 let root = loadRoot();
 let save = root.players[root.cur] || null;
-const ui = { screen: save ? (root.players.length > 1 ? 'who' : 'home') : 'welcome', round: null, q: null, typed: '', phase: 'ask', overlay: null, res: null, t0: 0, lock: 0, bubble: '', timer: 0, detail: null, sum: null, arm: '', note: '', shopTab: 'hat', boss: null, speed: null, tick: 0, more: false, game: null, raf: 0 };
+const ui = { screen: save ? (root.players.length > 1 ? 'who' : 'home') : 'welcome', round: null, q: null, typed: '', phase: 'ask', overlay: null, res: null, t0: 0, lock: 0, bubble: '', timer: 0, detail: null, sum: null, arm: '', note: '', shopTab: 'hat', boss: null, speed: null, tick: 0, more: false, cloud: {}, cf: cfFresh(), game: null, raf: 0 };
 
 /* ---------- drawing pets ---------- */
 const COLORS = ['#FF8A5B', '#2BB5A0', '#FFC93C', '#8E7CFF', '#5BC0EB', '#F2779A', '#7BC950', '#FF9F1C', '#C77DFF', '#49B6FF'];
@@ -1071,6 +1305,7 @@ function endRound() {
   ui.screen = 'summary';
   sfx('done');
   render();
+  syncNow();
 }
 function leaveGame() { clearTimeout(ui.timer); clearInterval(ui.tick); Mic.stop(); if (canSpeak) speechSynthesis.cancel(); ui.overlay = null; ui.round = null; ui.boss = null; ui.speed = null; cancelAnimationFrame(ui.raf); ui.game = null; }
 
@@ -1089,7 +1324,7 @@ function bossSubmit() {
   const q = b.qs[b.i], res = E.bossAnswer(save, b, q.kind === 'w' ? ui.typed : Number(ui.typed), Date.now());
   persist();
   b.res = res; b.last = q;
-  if (res.over) { b.phase = 'over'; ui.lock = Date.now() + 900; Mic.stop(); sfx(res.over === 'win' ? 'grown' : 'wrong'); render(); return; }
+  if (res.over) { b.phase = 'over'; ui.lock = Date.now() + 900; Mic.stop(); sfx(res.over === 'win' ? 'grown' : 'wrong'); render(); syncNow(); return; }
   b.phase = 'feedback';
   b.line = res.correct ? rand(BOSS_OUCH) : q.kind === 'w' ? `Ha! It is spelled ${q.ans}.` : `Ha! ${q.x} ${q.op} ${q.y} is ${q.ans}.`;
   sfx(res.correct ? 'right' : 'wrong');
@@ -1153,6 +1388,7 @@ function speedEnd() {
   if (canSpeak) speechSynthesis.cancel();
   sfx('done');
   render();
+  syncNow();
 }
 
 /* ---------- Pet Park games ----------
@@ -1225,6 +1461,7 @@ function gameEnd() {
   g.phase = 'over'; ui.lock = Date.now() + 900; ui.arm = '';
   sfx(g.res.best ? 'grown' : 'done');
   render();
+  syncNow();
 }
 function gameQuit() {
   if (ui.arm !== 'quit') {
@@ -1432,14 +1669,17 @@ function vWelcome() {
       <label>What is your name?<input type="text" name="name" maxlength="16" autocomplete="off" autofocus></label>
       <div><p style="margin-bottom:8px;font-size:1.1rem">What do you want to hatch?</p><div class="pick">${opts}</div></div>
       <div><button class="btn big" type="submit">Let's hatch ▶</button></div>
-    </form></div>
+    </form>
+    <p class="tiny" style="margin-top:20px">Played on another computer? <button class="btn sm" type="button" data-act="login">🔑 I already have a player</button></p></div>
     <div class="heroart">${creatureSVG('6x7', 1, { size: 170, cls: 'wobble' })}</div>
   </section>`;
 }
 function vWho() {
-  const cards = root.players.map((p, i) => { const st = E.stats(p, Date.now()); return `<button class="pcard" data-act="pick" data-i="${i}">${avatar(p, 110)}<b>${esc(p.name)}</b><span>${E.subjectsOf(p).map(k => ICON[k]).join(' ')} ${E.SUBJECTS[p.subject].name}</span><span class="tiny">${st.grown} of ${st.total} grown up</span></button>`; }).join('');
-  const add = root.players.length < MAX_PLAYERS ? `<button class="pcard add" data-act="addplayer"><span class="plus">+</span><b>New player</b></button>` : '';
-  return `<header class="top">${logo()}</header><section class="card"><h2>Who is hatching today?</h2><div class="who">${cards}${add}</div></section>`;
+  const cards = root.players.map((p, i) => { const st = E.stats(p, Date.now()); return `<button class="pcard" data-act="pick" data-i="${i}">${avatar(p, 110)}<b>${esc(p.name)}</b><span>${E.subjectsOf(p).map(k => ICON[k]).join(' ')} ${E.SUBJECTS[p.subject].name}</span><span class="tiny">${st.grown} of ${st.total} grown up</span>${cloudTag(p.id)}</button>`; }).join('');
+  const room = root.players.length < MAX_PLAYERS;
+  const add = room ? `<button class="pcard add" data-act="addplayer"><span class="plus">+</span><b>New player</b></button>` : '';
+  const login = room ? `<button class="pcard add" data-act="login"><span class="plus">🔑</span><b>I already have a player</b><span class="tiny" style="margin:0">From another computer</span></button>` : '';
+  return `<header class="top">${logo()}</header><section class="card"><h2>Who is hatching today?</h2><div class="who">${cards}${add}${login}</div></section>`;
 }
 function levelCard() {
   const lv = E.levelInfo(save.stars);
@@ -1488,8 +1728,9 @@ function vHome() {
     <div class="stages"><span>🥶 <b>${st.by[0]}</b> cold</span><span>🥚 <b>${st.by[1] + st.by[2]}</b> warming</span><span>🐣 <b>${st.by[3]}</b> hatched</span><span>⭐ <b>${st.by[4]}</b> grown up</span></div>
     <div class="tables">${st.groups.map(g => `<div class="tb ${g.n === g.of ? 'done' : ''}"><b>${g.label}${save.bosses[g.key] && save.bosses[g.key].won ? ' 🏆' : ''}</b>${g.n}/${g.of}</div>`).join('')}</div>
   </section>
-  <nav class="row"><button class="btn" data-act="book">📖 Pet book</button><button class="btn" data-act="shop">🛍️ Shop</button><button class="btn" data-act="park">🎪 Pet Park${save.tickets ? ` 🎟️ ${save.tickets}` : ''}</button>${save.done ? '<button class="btn" data-act="cert">🏆 Certificate</button>' : ''}<button class="btn" data-act="who">👥 Switch player</button><button class="btn" data-act="grown">Grown-ups</button></nav>
-  ${saveBroken ? '<p class="tiny warn">This browser is not letting the game save. Progress may be lost when you close it.</p>' : ''}
+  <nav class="row"><button class="btn" data-act="book">📖 Pet book</button><button class="btn" data-act="shop">🛍️ Shop</button><button class="btn" data-act="park">🎪 Pet Park${save.tickets ? ` 🎟️ ${save.tickets}` : ''}</button>${save.done ? '<button class="btn" data-act="cert">🏆 Certificate</button>' : ''}<button class="btn" data-act="who">👥 Switch player</button>${root.cloud[save.id] ? '' : '<button class="btn" data-act="cloud">☁️ Play on any computer</button>'}<button class="btn" data-act="grown">Grown-ups</button></nav>
+  ${cloudLine()}
+  ${saveBroken ?'<p class="tiny warn">This browser is not letting the game save. Progress may be lost when you close it.</p>' : ''}
   <div class="parade">${pets.map((f, i) => `<span style="animation-delay:${-i * 0.23}s" class="bob">${creatureSVG(f.id, save.facts[f.id].s, { size: 76, bed: save.bed, wear: save.worn[f.id] })}</span>`).join('')}</div>${moreUI}`;
 }
 function vOverlay() {
@@ -1657,7 +1898,7 @@ function vGrownups() {
   const grids = isSpelling() ? `<div class="words">${S.facts.map(f => `<span class="s${save.facts[f.id].s}c" title="right ${save.facts[f.id].r}, wrong ${save.facts[f.id].w}">${f.word}</span>`).join('')}</div>` : kinds.map(([k, sym]) => `<div><table class="pgrid" aria-label="Progress for ${sym}"><tr><th>${sym}</th>${nums.map(n => `<th>${n}</th>`).join('')}</tr>${nums.map(a => `<tr><th>${a}</th>${nums.map(b => { const id = Math.min(a, b) + k + Math.max(a, b), f = save.facts[id]; return `<td class="s${f.s}c" title="${factText(id, true)}: right ${f.r}, wrong ${f.w}"></td>`; }).join('')}</tr>`).join('')}</table></div>`).join('');
   const days = Object.keys(save.days).sort().reverse().slice(0, 14);
   const log = days.length ? `<table class="log"><tr><th>Day</th><th>Rounds</th><th>Questions</th><th>Right</th><th>Hatched</th><th>Memorized</th><th>🎟️ Pet Park</th></tr>${days.map(k => { const d = save.days[k]; return `<tr><td>${k}</td><td>${d.rounds}</td><td>${d.q}</td><td>${d.q ? Math.round(d.ok / d.q * 100) : 0}%</td><td>${d.hatched}</td><td>${d.grown}</td><td>${d.tix || d.games ? `${d.tix || 0} earned · ${d.games || 0} played` : ''}</td></tr>`; }).join('')}</table>` : '<p class="tiny">No rounds played yet.</p>';
-  const code = btoa(unescape(encodeURIComponent(JSON.stringify(root))));
+  const code = btoa(unescape(encodeURIComponent(JSON.stringify({ v: root.v, cur: root.cur, players: root.players })))), link = root.cloud[save.id];
   return backBar('For grown-ups') + `
   <section class="card"><h2>${esc(save.name)}: ${S.name}</h2>
     ${E.subjectsOf(save).length > 1 ? `<p class="tiny" style="margin:0 0 10px">${esc(save.name)} is hatching ${E.subjectsOf(save).length} things. This page shows ${S.name}. Switch on the home screen to see the others. Seeds, stars and level are shared.</p>` : ''}
@@ -1673,9 +1914,12 @@ function vGrownups() {
     <p style="margin-top:8px">Each Pet Park mini game costs one 🎟️ ticket. Tickets only come from a round with at least 75% right, beating a boss egg, or finishing all three daily quests. The mini games give no seeds or stars.</p>
     <p class="tiny">The microphone uses the browser's own speech recognition. In Chrome that sends your child's voice to Google to be turned into text. This game keeps no recordings.</p></section>
   <section class="card"><h2>Back up or move progress</h2>
-    <p class="tiny" style="margin:0 0 8px">Progress lives in this browser on this computer. Copy this code somewhere safe to back it up (it covers every player). Paste a code and press Load to restore.</p>
+    ${link ? `<p class="tiny" style="margin:0 0 8px">☁️ ${esc(save.name)} is saved in the cloud and logs in as <b>${esc(link.login)}</b> with a 4-digit PIN. Forgot the PIN? On the grown-up's Mac, in the game's folder, run <code>node tools/reset-pin.mjs ${esc(link.login)} 1234</code> with a new PIN. Pets are not touched. Each day's first save also keeps a backup copy in the cloud.</p>` : ''}
+    <p class="tiny" style="margin:0 0 8px">${link ? 'This computer also keeps a copy.' : 'Progress lives in this browser on this computer.'} Copy this code somewhere safe to back it up (it covers every player on this computer). Paste a code and press Load to restore.${link ? ' You can also paste one save copied from the Firebase console; it becomes the cloud copy.' : ''}</p>
     <textarea id="code" spellcheck="false" aria-label="Save code">${code}</textarea>
-    <div class="row" style="margin:12px 0 0"><button class="btn sm" data-act="copy">Copy code</button><button class="btn sm" data-act="loadcode">Load pasted code</button><button class="btn sm" data-act="erase">${ui.arm === 'erase' ? 'Press again to erase ' + esc(save.name) + ' for good' : 'Erase this player'}</button></div>
+    <div class="row" style="margin:12px 0 0"><button class="btn sm" data-act="copy">Copy code</button><button class="btn sm" data-act="loadcode">Load pasted code</button><button class="btn sm" data-act="erase">${link
+      ? (ui.arm === 'erase' ? 'Press again to remove ' + esc(save.name) + ' from this computer' : 'Remove from this computer (still saved in the cloud)')
+      : (ui.arm === 'erase' ? 'Press again to erase ' + esc(save.name) + ' for good' : 'Erase this player')}</button></div>
     ${ui.note ? `<p class="tiny">${esc(ui.note)}</p>` : ''}</section>`;
 }
 function vCert() {
@@ -1688,7 +1932,7 @@ function vCert() {
     <div class="parade" style="margin-top:18px">${S.facts.slice(0, 55).map(f => creatureSVG(f.id, 4, { size: 54, bed: save.bed, wear: save.worn[f.id] })).join('')}</div></section>`;
 }
 function render() {
-  const views = { welcome: vWelcome, who: vWho, home: vHome, round: vRound, summary: vSummary, book: vBook, shop: vShop, grown: vGrownups, cert: vCert, boss: vBoss, speed: vSpeed, park: vPark, game: vGame };
+  const views = { welcome: vWelcome, who: vWho, home: vHome, round: vRound, summary: vSummary, book: vBook, shop: vShop, grown: vGrownups, cert: vCert, boss: vBoss, speed: vSpeed, login: vLogin, cloud: vCloud, choose: vChoose, park: vPark, game: vGame };
   app.innerHTML = views[ui.screen]();
   const auto = app.querySelector('[autofocus]');
   if (auto) auto.focus();
@@ -1697,10 +1941,10 @@ function render() {
 /* ---------- buttons and keys ---------- */
 function go(screen) { if (inGame()) leaveGame(); ui.screen = screen; ui.detail = null; ui.more = false; ui.arm = ''; ui.note = ''; render(); }
 const ACTS = {
-  play: () => startRound(),
+  play: () => fresh(startRound),
   home: () => go('home'), book: () => go('book'), shop: () => go('shop'), grown: () => go('grown'), cert: () => go('cert'), who: () => go('who'), park: () => go('park'),
   addplayer: () => go('welcome'),
-  pick: d => { root.cur = Number(d.i); save = root.players[root.cur]; persist(); go('home'); },
+  pick: d => { root.cur = Number(d.i); save = root.players[root.cur]; writeLocal(); go('home'); if (root.cloud[save.id]) syncPlayer(save.id); },
   next: () => closeOverlay(),
   sound: () => { save.sound = !save.sound; persist(); render(); if (save.sound) sfx('right'); },
   mic: () => { if (Mic.on) { Mic.stop(); save.mic = false; } else { save.mic = true; Mic.status = ''; Mic.start(); } persist(); render(); },
@@ -1713,29 +1957,57 @@ const ACTS = {
   tab: d => { ui.shopTab = d.tab; render(); },
   usebed: d => { save.bed = save.bed === d.item ? '' : d.item; persist(); render(); },
   levelup: () => { const lv = E.levelInfo(save.stars).level; save.seeds += 20 * Math.max(0, lv - save.seenLevel); save.seenLevel = lv; persist(); sfx('grown'); render(); },
-  boss: d => startBoss(d.key),
+  boss: d => fresh(() => startBoss(d.key)),
   speed: () => { leaveGame(); ui.speed = { phase: 'ready', score: 0 }; ui.screen = 'speed'; render(); },
-  gameopen: d => openGame(d.game),
+  gameopen: d => fresh(() => openGame(d.game)),
   gamestart: () => gameStart(),
   gamequit: () => gameQuit(),
   gamehit: d => { const g = ui.game; if (g && g.phase === 'play' && GAME_UI[g.id].hit) GAME_UI[g.id].hit(g, d); },
-  speedgo: () => speedStart(),
+  speedgo: () => fresh(speedStart),
   say: () => sayQ(askingNow() || ui.q),
   print: () => window.print(),
   copy: () => { const t = document.querySelector('#code'); t.select(); const done = ok => { ui.note = ok ? 'Copied.' : 'Select the code and copy it by hand.'; render(); }; if (navigator.clipboard) navigator.clipboard.writeText(t.value).then(() => done(true), () => done(false)); else done(false); },
+  /* Takes the backup code (every player) or one player's save copied out of the Firebase console.
+     A cloud player loaded this way becomes the cloud copy, even with fewer stars: that is how a grown-up undoes a bad pick. */
   loadcode: () => {
     try {
-      const raw = JSON.parse(decodeURIComponent(escape(atob(document.querySelector('#code').value.trim()))));
-      const players = (raw.players || []).map(p => E.repair(p, Date.now())).filter(Boolean);
-      if (!players.length) throw new Error('no players in code');
-      root = { v: 1, cur: Math.min(raw.cur | 0, players.length - 1), players }; save = root.players[root.cur]; persist();
-      ui.note = 'Loaded ' + plural(players.length, 'player') + '.';
+      const text = document.querySelector('#code').value.trim();
+      const raw = JSON.parse(text.startsWith('{') ? text : decodeURIComponent(escape(atob(text))));
+      const restore = id => { const l = root.cloud[id]; if (l) { l.force = true; l.dirty = true; edits[id] = (edits[id] | 0) + 1; } };
+      if (raw && raw.subject && raw.facts) {
+        const one = E.repair(raw, Date.now());
+        if (!one || !save) throw new Error('not a save');
+        one.id = save.id; root.players[root.cur] = one; save = one; restore(one.id);
+        ui.note = 'Loaded ' + one.name + "'s pets" + (root.cloud[one.id] ? ' and put them in the cloud.' : '.');
+      } else {
+        const players = (raw.players || []).map(p => E.repair(p, Date.now())).filter(Boolean);
+        if (!players.length) throw new Error('no players in code');
+        const cloud = {};
+        for (const p of players) if (root.cloud[p.id]) { cloud[p.id] = root.cloud[p.id]; restore(p.id); }
+        root = { v: 1, cur: Math.min(raw.cur | 0, players.length - 1), players, cloud }; save = root.players[root.cur];
+        ui.note = 'Loaded ' + plural(players.length, 'player') + '.';
+      }
+      writeLocal(); syncAll();
     } catch (err) { ui.note = 'That code did not work. Nothing was changed.'; }
     render();
   },
-  erase: () => {
+  erase: async () => {
     if (ui.arm !== 'erase') { ui.arm = 'erase'; render(); return; }
-    root.players.splice(root.cur, 1); root.cur = 0; save = root.players[0] || null; persist();
+    const id = save.id, name = save.name;
+    if (root.cloud[id]) {
+      // "still saved in the cloud" has to be true before this computer's copy goes
+      if (root.cloud[id].dirty || root.cloud[id].force) { ui.arm = ''; ui.note = 'Saving to the cloud first…'; render(); await syncPlayer(id); }
+      const link = root.cloud[id];
+      if (link && (link.dirty || link.force)) {
+        ui.arm = ''; ui.note = `Some of ${name}'s pets are not in the cloud yet, so nothing was removed. ${ui.cloud[id] === 'pin' ? 'Type the PIN on the home screen' : 'Connect to the internet'}, then try again.`;
+        if (ui.screen === 'grown') render();
+        return;
+      }
+      if (link) { Cloud.forget(link.login).catch(() => {}); delete root.cloud[id]; }
+    }
+    const i = root.players.findIndex(p => p.id === id);
+    if (i >= 0) root.players.splice(i, 1);
+    root.cur = 0; save = root.players[0] || null; writeLocal();
     go(save ? 'who' : 'welcome');
   },
 };
@@ -1748,10 +2020,169 @@ app.addEventListener('click', e => {
 });
 app.addEventListener('submit', e => {
   e.preventDefault();
-  const fd = new FormData(e.target), name = String(fd.get('name') || '').trim().slice(0, 16) || 'Keeper';
+  const fd = new FormData(e.target);
+  if (FORMS[e.target.dataset.form]) { if (!ui.cf.busy) FORMS[e.target.dataset.form](fd); return; }
+  const name = String(fd.get('name') || '').trim().slice(0, 16) || 'Keeper';
   save = E.newSave(Date.now(), fd.get('subject'), name);
   root.players.push(save); root.cur = root.players.length - 1; persist();
   go('home');
+});
+
+/* ---------- cloud screens: log in, play on any computer, pick a copy ---------- */
+function cfFresh(o) { return Object.assign({ name: '', login: '', step: 'form', note: '', busy: false, mine: null, choose: null }, o); }
+function cfNote(msg) { ui.cf.note = msg; ui.cf.busy = false; render(); }
+function cloudMsg(e) {
+  return ({ wrong: "That name and PIN don't match. Try again?", throttled: 'Too many tries. Wait a few minutes, then try again.',
+    offline: "Can't reach the internet right now. Try again in a minute.", taken: 'Someone already has that name.' })[e && e.code]
+    || 'Something went wrong. Try again in a minute.';
+}
+const cloudTag = id => {
+  if (!root.cloud[id]) return '';
+  const st = ui.cloud[id];
+  return `<span class="tiny" style="margin:0">${st === 'offline' ? '⚠️ Not in the cloud yet' : st === 'pin' ? '🔑 Needs your PIN' : '☁️ In the cloud'}</span>`;
+};
+const pinInput = (name, label, focus) => `<label>${label}<input class="pin" type="password" name="${name}" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" ${focus ? 'autofocus' : ''}></label>`;
+function cloudLine() {
+  const link = root.cloud[save.id];
+  if (!link) return '';
+  const st = ui.cloud[save.id];
+  if (st === 'pin') return `<p class="tiny">🔑 Type your PIN again to keep saving to the cloud. <button class="btn sm" data-act="repin">Type my PIN</button></p>`;
+  if (st === 'offline') return '<p class="tiny">⚠️ Not saved to the cloud yet. It will try again when the internet is back.</p>';
+  return `<p class="tiny">☁️ Saved in the cloud. On other computers, log in as <b>${esc(E.loginOf(save.name) === link.login ? save.name : link.login)}</b>.</p>`;
+}
+const cfNoteHTML = () => ui.cf.note ? `<p class="warn" role="alert" style="margin:0">${esc(ui.cf.note)}</p>` : '';
+const busyBtn = (label, wait) => `<button class="btn big" type="submit" ${ui.cf.busy ? 'disabled' : ''}>${ui.cf.busy ? wait : label}</button>`;
+function pickId(id) {
+  const i = root.players.findIndex(p => p.id === id);
+  if (i < 0) return go('who');
+  root.cur = i; save = root.players[i]; writeLocal(); go('home');
+}
+
+function vLogin() {
+  const f = ui.cf;
+  return `<header class="top">${logo()}<button class="btn sm" data-act="${root.players.length ? 'who' : 'addplayer'}">← Back</button></header>
+  <section class="card"><h2>🔑 I already have a player</h2>
+    <p class="lead" style="max-width:44ch">Played on another computer? Type your name and your secret PIN, and your pets come here too.</p>
+    <form class="form" data-form="login">
+      <label>Your name<input type="text" name="name" maxlength="16" autocomplete="off" value="${esc(f.name)}" ${f.name ? '' : 'autofocus'}></label>
+      ${pinInput('pin', 'Secret PIN', !!f.name)}
+      <div>${busyBtn("Let's go ▶", 'Looking for your pets…')}</div>${cfNoteHTML()}
+    </form></section>`;
+}
+function vCloud() {
+  const f = ui.cf;
+  if (f.step === 'done') return backBar('☁️ Play on any computer') + `<section class="card pop"><p class="shout">☁️ Your pets are in the cloud!</p>
+    <p class="lead">On another computer, tap <b>🔑 I already have a player</b>, then type <b>${esc(f.name)}</b> and your PIN.</p>
+    ${ui.cloud[f.mine] === 'offline' ? '<p class="tiny">The internet dropped for a moment. Your pets will finish saving when it is back.</p>' : ''}
+    <p class="tiny">Tell a grown-up your PIN, or write it somewhere safe.</p>
+    <p style="margin-top:16px"><button class="btn big" data-act="home">Back home ▶</button></p></section>`;
+  if (f.step === 'taken') return backBar('☁️ Play on any computer') + `<section class="card"><h2>Someone already has the name ${esc(f.name || f.login)}</h2>
+    <p class="lead">Is it you, from another computer?</p>
+    <form class="form" data-form="itsme">${pinInput('pin', 'Yes! My secret PIN', true)}
+      <div class="row">${busyBtn("That's me ▶", 'Checking…')}<button class="btn" type="button" data-act="notme">No, I'll pick another name</button></div>${cfNoteHTML()}
+    </form></section>`;
+  return backBar('☁️ Play on any computer') + `<section class="card"><h2>☁️ Play on any computer</h2>
+    <p class="lead" style="max-width:46ch">Pick a secret PIN of 4 numbers. Then on any computer you can type your name and PIN, and all your pets, seeds and stars come with you.</p>
+    <form class="form" data-form="cloud">
+      <label>Your name<input type="text" name="name" maxlength="16" autocomplete="off" value="${esc(f.name)}"></label>
+      ${pinInput('pin', 'Secret PIN (4 numbers)', true)}${pinInput('pin2', 'Type it again', false)}
+      <div>${busyBtn('Save my pets ▶', 'Saving…')}</div>${cfNoteHTML()}
+    </form></section>`;
+}
+function vChoose() {
+  const c = ui.cf.choose, here = c && playerById(c.id);
+  if (!here) return vWho();
+  const card = (p, label, which) => { const st = E.stats(p, Date.now()); return `<div class="pcard" style="cursor:default">${avatar(p, 110)}<b>${label}</b><span>⭐ ${plural(p.stars, 'star')}</span><span class="tiny" style="margin:0">${st.grown} of ${st.total} grown up, played on ${plural(st.days, 'day')}</span><button class="btn" data-act="keep" data-which="${which}" ${ui.cf.busy ? 'disabled' : ''}>Keep this one</button></div>`; };
+  return `<header class="top">${logo()}<button class="btn sm" data-act="who">← Back</button></header>
+  <section class="card"><h2>Two of ${esc(here.name)}!</h2>
+    <p class="lead" style="max-width:46ch">This computer has pets for ${esc(here.name)}, and so does the cloud. Which pets do you want to keep playing with?</p>
+    <div class="who">${card(here, 'This computer', 'here')}${card(c.cloud, 'The cloud', 'cloud')}</div>
+    <p class="tiny">The other copy is kept safe in the cloud, so a grown-up can bring it back.</p>${cfNoteHTML()}</section>`;
+}
+
+// After a PIN is right: bring this kid's pets onto this computer.
+function arrive(login, doc) {
+  const linked = Object.keys(root.cloud).find(id => root.cloud[id].login === login);
+  if (linked) { pickId(linked); syncPlayer(linked); return; }
+  const cloudSave = doc && E.repair(JSON.parse(doc.save), Date.now());
+  const twin = (ui.cf.mine && !root.cloud[ui.cf.mine] && playerById(ui.cf.mine))
+    || root.players.find(p => !root.cloud[p.id] && (E.loginOf(p.name) === login || (cloudSave && p.id === cloudSave.id)));
+  if (!cloudSave) {
+    if (!twin) return cfNote("We couldn't find any pets for that name yet.");
+    root.cloud[twin.id] = { login, rev: 0, dirty: true, force: false };
+    pickId(twin.id); syncPlayer(twin.id); return;
+  }
+  if (twin) { ui.cf.choose = { id: twin.id, login, rev: doc.rev, cloud: cloudSave }; ui.cf.busy = false; ui.cf.note = ''; ui.screen = 'choose'; render(); return; }
+  if (root.players.length >= MAX_PLAYERS) return cfNote('This computer already has 4 players. A grown-up can remove one on the Grown-ups page.');
+  root.players.push(cloudSave);
+  root.cloud[cloudSave.id] = { login, rev: doc.rev, dirty: false, force: false };
+  pickId(cloudSave.id);
+}
+async function signInAndArrive(login, pin) {
+  ui.cf.busy = true; ui.cf.note = ''; render();
+  try {
+    await Cloud.signIn(login, pin);
+    const doc = await Cloud.pull(login);
+    ui.cf.busy = false;
+    arrive(login, doc);
+  } catch (e) { cfNote(cloudMsg(e)); }
+}
+const FORMS = {
+  login: fd => {
+    const name = String(fd.get('name') || '').trim(), pin = String(fd.get('pin') || ''), login = E.loginOf(name);
+    ui.cf.name = name;
+    if (!login) return cfNote('Type your name.');
+    if (!E.pinOK(pin)) return cfNote('Your PIN is 4 numbers.');
+    signInAndArrive(login, pin);
+  },
+  itsme: fd => {
+    const pin = String(fd.get('pin') || '');
+    if (!E.pinOK(pin)) return cfNote('Your PIN is 4 numbers.');
+    signInAndArrive(ui.cf.login, pin);
+  },
+  cloud: async fd => {
+    const f = ui.cf, name = String(fd.get('name') || '').trim(), pin = String(fd.get('pin') || ''), login = E.loginOf(name);
+    f.name = name;
+    if (!login) return cfNote('Your name needs at least one letter or number.');
+    if (!E.pinOK(pin)) return cfNote('Your PIN is 4 numbers, like 2580.');
+    if (pin !== String(fd.get('pin2') || '')) return cfNote("The two PINs don't match. Try again.");
+    if (!playerById(f.mine)) return go('who');
+    f.busy = true; f.note = ''; render();
+    try { await Cloud.signUp(login, pin); }
+    catch (e) {
+      if (e.code === 'taken') { f.busy = false; f.step = 'taken'; f.login = login; f.note = ''; render(); return; }
+      return cfNote(cloudMsg(e));
+    }
+    root.cloud[f.mine] = { login, rev: 0, dirty: true, force: false };
+    writeLocal();
+    await syncPlayer(f.mine);
+    f.busy = false; f.step = 'done'; f.login = login;
+    if (ui.screen === 'cloud') render();
+  },
+};
+Object.assign(ACTS, {
+  login: () => { ui.cf = cfFresh(); go('login'); },
+  cloud: () => { ui.cf = cfFresh({ name: save.name, mine: save.id }); go('cloud'); },
+  repin: () => { ui.cf = cfFresh({ name: root.cloud[save.id].login }); go('login'); },
+  notme: () => { ui.cf = cfFresh({ mine: ui.cf.mine, note: 'Pick a different name, like ' + save.name + '2 or ' + save.name + 'S.' }); render(); },
+  keep: async d => {
+    const c = ui.cf.choose, here = c && playerById(c.id);
+    if (!here || ui.cf.busy) return;
+    ui.cf.busy = true; render();
+    try {
+      if (d.which === 'here') {
+        await Cloud.keep(c.login, JSON.stringify(c.cloud));
+        root.cloud[here.id] = { login: c.login, rev: c.rev, dirty: true, force: true };
+        pickId(here.id); syncPlayer(here.id);
+      } else {
+        await Cloud.keep(c.login, JSON.stringify(here));
+        root.cloud[here.id] = { login: c.login, rev: c.rev, dirty: false, force: false };
+        applyCloud(here.id, c.cloud, c.rev);
+        pickId(c.cloud.id);
+      }
+      ui.cf = cfFresh();
+    } catch (e) { cfNote(cloudMsg(e)); }
+  },
 });
 document.addEventListener('keydown', e => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -1777,14 +2208,21 @@ document.addEventListener('keydown', e => {
   if (e.key !== 'Enter' || Date.now() < ui.lock) return;
   if (ui.screen === 'round') { if (ui.phase === 'feedback') nextQ(); }
   else if (ui.screen === 'boss') { if (ui.boss.phase === 'feedback') bossNext(); else if (ui.boss.phase === 'over') go('home'); }
-  else if (ui.screen === 'speed') { if (ui.speed.phase === 'ready') speedStart(); else if (ui.speed.phase === 'over') go('home'); }
-  else if (ui.screen === 'home' || ui.screen === 'summary') startRound();
+  else if (ui.screen === 'speed') { if (ui.speed.phase === 'ready') fresh(speedStart); else if (ui.speed.phase === 'over') go('home'); }
+  else if (ui.screen === 'home' || ui.screen === 'summary') fresh(startRound);
 });
 document.addEventListener('keyup', e => { if (ui.screen === 'game') gameKey(e, false); });
 app.addEventListener('pointermove', gamePoint);
 app.addEventListener('pointerdown', gamePoint);
-window.__hatchery = { ui, Mic, onVoice, get save() { return save; } };
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') { if (!inGame()) syncAll(); }
+  else for (const id in root.cloud) if (root.cloud[id].dirty) syncPlayer(id);
+});
+window.addEventListener('online', syncAll);
+window.addEventListener('pagehide', () => { for (const id in root.cloud) if (root.cloud[id].dirty) syncPlayer(id); });
+window.__hatchery = { ui, Mic, onVoice, get save() { return save; }, get root() { return root; }, syncPlayer };
 render();
+syncAll();
 })();
 </script>
 </body>
