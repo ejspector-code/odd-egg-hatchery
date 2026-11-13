@@ -1165,7 +1165,8 @@ const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.f
 /* n pets for a game: hatched pets first (shuffled), then warm eggs, then cold eggs drawn warm. No two eggs look alike. */
 function parkPets(n) {
   const roster = E.petRoster(save), out = shuffle(roster.filter(p => p.stage >= 3)).slice(0, n), seen = new Set();
-  const addEgg = (id, stage) => { const look = spec(id).egg + '|' + spec(id).pat; if (out.length < n && !seen.has(look)) { seen.add(look); out.push({ id, stage, wear: {} }); } };
+  const SAME_EGG = { '#FFD0A6': '#FFD9A0' }; // these two peach shells look the same on screen
+  const addEgg = (id, stage) => { const e = spec(id).egg, look = (SAME_EGG[e] || e) + '|' + spec(id).pat; if (out.length < n && !seen.has(look)) { seen.add(look); out.push({ id, stage, wear: {} }); } };
   for (const p of roster) if (p.stage <= 2) addEgg(p.id, p.stage);
   for (const f of E.SUBJECTS[save.subject].facts) if (save.facts[f.id].s === 0) addEgg(f.id, 1);
   return out;
