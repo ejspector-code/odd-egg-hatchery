@@ -105,6 +105,18 @@ button{font:inherit;color:inherit}
 .gtext{flex:1;display:flex;flex-direction:column;min-width:12ch}
 .gtext b{font-size:1.25rem}
 .gtext .tiny{margin-top:2px}
+.howto{font-size:1.15rem;max-width:46ch;margin:0 auto 6px}
+.howto p{margin:6px 0}
+.gamecard{padding:12px}
+.arena{position:relative;width:100%;aspect-ratio:5/3;overflow:hidden;border:3px solid var(--ink);border-radius:18px;touch-action:none;user-select:none;-webkit-user-select:none}
+.arena.sky{background:linear-gradient(#DFF3FF,#FFF6E5 90%,#B8E08A 90%)}
+.spr{position:absolute;transform:translate(-50%,-100%);pointer-events:none;line-height:0}
+.spr svg{width:100%;height:auto;display:block}
+.spr.egg{width:6%}
+.spr.egg.gold{width:7.5%;filter:drop-shadow(0 0 8px #FFC93C) drop-shadow(0 0 3px #fff)}
+.spr.me{width:11%;z-index:2}
+.spr.fx{line-height:1.1;font-size:clamp(1rem,3vw,1.7rem);white-space:nowrap;z-index:3;color:var(--ink);text-shadow:0 2px 0 #fff;animation:floatup .7s ease-out forwards}
+@keyframes floatup{to{transform:translate(-50%,-170%);opacity:0}}
 .veil{position:fixed;inset:0;background:rgba(59,42,74,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:10;overflow:auto}
 .veil .card{max-width:560px;width:100%;text-align:center;margin:auto}
 .pop{animation:pop .28s cubic-bezier(.2,1.5,.4,1) both}
@@ -687,7 +699,7 @@ function persist() {
 }
 let root = loadRoot();
 let save = root.players[root.cur] || null;
-const ui = { screen: save ? (root.players.length > 1 ? 'who' : 'home') : 'welcome', round: null, q: null, typed: '', phase: 'ask', overlay: null, res: null, t0: 0, lock: 0, bubble: '', timer: 0, detail: null, sum: null, arm: '', note: '', shopTab: 'hat', boss: null, speed: null, tick: 0, more: false };
+const ui = { screen: save ? (root.players.length > 1 ? 'who' : 'home') : 'welcome', round: null, q: null, typed: '', phase: 'ask', overlay: null, res: null, t0: 0, lock: 0, bubble: '', timer: 0, detail: null, sum: null, arm: '', note: '', shopTab: 'hat', boss: null, speed: null, tick: 0, more: false, game: null, raf: 0 };
 
 /* ---------- drawing pets ---------- */
 const COLORS = ['#FF8A5B', '#2BB5A0', '#FFC93C', '#8E7CFF', '#5BC0EB', '#F2779A', '#7BC950', '#FF9F1C', '#C77DFF', '#49B6FF'];
@@ -932,7 +944,7 @@ function say(text) {
 }
 const sayQ = q => { if (q && q.kind === 'w') say(q.ans); };
 const isSpelling = () => !!save && E.SUBJECTS[save.subject].facts[0].kind === 'w';
-const inGame = () => ui.screen === 'round' || ui.screen === 'boss' || ui.screen === 'speed';
+const inGame = () => ui.screen === 'round' || ui.screen === 'boss' || ui.screen === 'speed' || ui.screen === 'game';
 const micOK = () => Mic.supported && !isSpelling();
 
 /* ---------- microphone ---------- */
@@ -1033,7 +1045,7 @@ function endRound() {
   sfx('done');
   render();
 }
-function leaveGame() { clearTimeout(ui.timer); clearInterval(ui.tick); Mic.stop(); if (canSpeak) speechSynthesis.cancel(); ui.overlay = null; ui.round = null; ui.boss = null; ui.speed = null; }
+function leaveGame() { clearTimeout(ui.timer); clearInterval(ui.tick); Mic.stop(); if (canSpeak) speechSynthesis.cancel(); ui.overlay = null; ui.round = null; ui.boss = null; ui.speed = null; cancelAnimationFrame(ui.raf); ui.game = null; }
 
 function startBoss(key) {
   leaveGame();
@@ -1114,6 +1126,170 @@ function speedEnd() {
   if (canSpeak) speechSynthesis.cancel();
   sfx('done');
   render();
+}
+
+/* ---------- Pet Park games ----------
+   Each game is an object in GAME_UI. The shell runs the intro card, the frame loop, the timer, quitting and the results.
+   render() can run mid-game (the sound button), so every frame re-creates any sprite element that is no longer on the page. */
+const AW = 1000, AH = 600; // arena size in game units; the arena scales to the screen
+const GAME_UI = {};
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+/* n pets for a game: hatched pets first (shuffled), then warm eggs, then cold eggs drawn warm. No two eggs look alike. */
+function parkPets(n) {
+  const roster = E.petRoster(save), out = shuffle(roster.filter(p => p.stage >= 3)).slice(0, n), seen = new Set();
+  const addEgg = (id, stage) => { const look = spec(id).egg + '|' + spec(id).pat; if (out.length < n && !seen.has(look)) { seen.add(look); out.push({ id, stage, wear: {} }); } };
+  for (const p of roster) if (p.stage <= 2) addEgg(p.id, p.stage);
+  for (const f of E.SUBJECTS[save.subject].facts) if (save.facts[f.id].s === 0) addEgg(f.id, 1);
+  return out;
+}
+const arenaEl = () => document.querySelector('#arena');
+/* Keep a sprite's element on the page and in place. (x, y) is the sprite's bottom middle, in game units. */
+function drawSprite(o, a) {
+  if (!o.el || !o.el.isConnected) { o.el = document.createElement('div'); o.el.className = 'spr ' + o.cls; o.el.innerHTML = o.html; a.appendChild(o.el); }
+  o.el.style.left = (o.x / AW * 100) + '%';
+  o.el.style.top = (o.y / AH * 100) + '%';
+}
+function dropSprite(o) { if (o.el) o.el.remove(); o.el = null; }
+function popText(g, x, y, text) { g.fx.push({ x, y, cls: 'fx', html: esc(text), life: 700, el: null }); }
+function drawFx(g, dt, a) {
+  for (const f of g.fx) { f.life -= dt; if (f.life > 0) drawSprite(f, a); else dropSprite(f); }
+  g.fx = g.fx.filter(f => f.life > 0);
+}
+
+function openGame(id) {
+  if (!E.gamesOpen(save).includes(id)) return;
+  leaveGame();
+  ui.game = { id, phase: 'intro', score: 0 };
+  ui.screen = 'game'; ui.arm = '';
+  render();
+}
+function gameStart() {
+  const g = ui.game;
+  if (!g || g.phase !== 'intro') return;
+  if (!E.startGame(save, g.id, Date.now())) { go('park'); return; }
+  persist();
+  const G = GAME_UI[g.id];
+  Object.assign(g, { phase: 'play', score: 0, left: G.secs ? G.secs * 1000 : Infinity, last: 0, t: 0, end: false, fx: [] });
+  G.setup(g);
+  render();
+  ui.raf = requestAnimationFrame(gameLoop);
+}
+function gameLoop(t) {
+  const g = ui.game;
+  if (!g || g.phase !== 'play' || ui.screen !== 'game') return;
+  const dt = g.last ? Math.min(t - g.last, 50) : 0; // capped, so a hidden tab pauses the clock instead of eating it
+  g.last = t; g.t += dt; g.left -= dt;
+  const a = arenaEl();
+  if (a) { GAME_UI[g.id].frame(g, dt, a); drawFx(g, dt, a); }
+  const sc = document.querySelector('#gscore'), tm = document.querySelector('#gtime');
+  if (sc) sc.textContent = g.score;
+  if (tm) tm.textContent = Math.max(0, Math.ceil(g.left / 1000));
+  if (g.left <= 0 || g.end) { gameEnd(); return; }
+  ui.raf = requestAnimationFrame(gameLoop);
+}
+function gameEnd() {
+  const g = ui.game;
+  cancelAnimationFrame(ui.raf);
+  g.res = E.gameFinish(save, g.id, g.score);
+  persist();
+  g.phase = 'over'; ui.lock = Date.now() + 900; ui.arm = '';
+  sfx(g.res.best ? 'grown' : 'done');
+  render();
+}
+function gameQuit() {
+  if (ui.arm !== 'quit') {
+    ui.arm = 'quit';
+    const b = document.querySelector('[data-act="gamequit"]');
+    if (b) b.textContent = 'Tap again to quit';
+    setTimeout(() => { if (ui.arm === 'quit') { ui.arm = ''; const x = document.querySelector('[data-act="gamequit"]'); if (x) x.textContent = '← Quit'; } }, 3000);
+    return;
+  }
+  go('park');
+}
+function gameKey(e, down) {
+  const g = ui.game;
+  if (!g) return;
+  if (g.phase === 'intro') { if (down && e.key === 'Enter') gameStart(); return; }
+  if (g.phase === 'over') { if (down && e.key === 'Enter' && Date.now() >= ui.lock) go('park'); return; }
+  const G = GAME_UI[g.id];
+  if (G.key && G.key(g, e, down)) e.preventDefault();
+}
+function gamePoint(e) {
+  const g = ui.game, G = g && GAME_UI[g.id], a = arenaEl();
+  if (ui.screen !== 'game' || !g || g.phase !== 'play' || !G.point || !a || !a.contains(e.target)) return;
+  const r = a.getBoundingClientRect();
+  G.point(g, (e.clientX - r.left) / r.width * AW, (e.clientY - r.top) / r.height * AH);
+}
+
+/* Egg Catch: slide a pet to catch falling eggs. */
+const GOLD_EGG = `<svg viewBox="0 -14 120 146" aria-hidden="true"><ellipse cx="60" cy="72" rx="34" ry="44" fill="#FFD54A" stroke="${INK}" stroke-width="3"/><ellipse cx="48" cy="54" rx="8" ry="13" fill="#FFF3B0"/><path d="M96 20l4 10 10 4-10 4-4 10-4-10-10-4 10-4z M20 96l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" fill="#fff" stroke="${INK}" stroke-width="2" stroke-linejoin="round"/></svg>`;
+const STINK_EGG = `<svg viewBox="0 -14 120 146" aria-hidden="true"><g fill="none" stroke="#7DA33A" stroke-width="3" stroke-linecap="round"><path d="M40 20q-6-8 0-16M60 16q-6-8 0-16M80 20q-6-8 0-16"/></g><ellipse cx="60" cy="72" rx="34" ry="44" fill="#9CCB5B" stroke="${INK}" stroke-width="3"/><g fill="#6E9632"><circle cx="46" cy="62" r="7"/><circle cx="72" cy="84" r="9"/><circle cx="54" cy="98" r="5"/></g><g fill="${INK}"><circle cx="18" cy="44" r="3"/><circle cx="104" cy="60" r="3"/></g><g fill="#fff" stroke="${INK}" stroke-width="1.5"><ellipse cx="15" cy="39" rx="4" ry="2.5"/><ellipse cx="22" cy="39" rx="4" ry="2.5"/><ellipse cx="101" cy="55" rx="4" ry="2.5"/><ellipse cx="108" cy="55" rx="4" ry="2.5"/></g></svg>`;
+const CATCH_TOP = AH - 135, CATCH_LOW = AH - 60; // an egg is caught when its bottom is in this band, over the pet
+GAME_UI.catch = {
+  secs: 60, label: 'Score',
+  intro: () => `<p>Slide your pet left and right to catch the falling eggs.</p>
+    <p class="trick" style="text-align:center">🥚 egg = 1 point · ✨ golden egg = 3 points · 🤢 stinky egg = minus 3, so dodge it!</p>
+    <p>Use the <b>← →</b> keys (or <b>A</b> and <b>D</b>), or move the mouse.</p>`,
+  setup(g) {
+    const top = E.petRoster(save)[0] || { id: E.SUBJECTS[save.subject].facts[0].id, stage: 1, wear: {} };
+    g.me = { x: AW / 2, y: AH - 8, cls: 'me', html: creatureSVG(top.id, top.stage, { wear: top.wear }), el: null, target: null };
+    // falling eggs are in mid-air, so drop the floor shadow creatureSVG draws under them
+    g.looks = shuffle(E.SUBJECTS[save.subject].facts.map(f => f.id)).slice(0, 8).map(id => creatureSVG(id, 1).replace(/<ellipse cx="60" cy="122"[^>]*\/>/, ''));
+    g.eggs = []; g.spawn = 400; g.keys = { l: false, r: false };
+  },
+  html: () => '<div id="arena" class="arena sky"></div>',
+  frame(g, dt, a) {
+    const p = Math.min(1, g.t / 60000), me = g.me;
+    const dir = (g.keys.r ? 1 : 0) - (g.keys.l ? 1 : 0);
+    if (dir) { me.target = null; me.x += dir * 0.9 * dt; }
+    else if (me.target !== null) { const d = me.target - me.x; me.x += Math.sign(d) * Math.min(Math.abs(d), 1.4 * dt); }
+    me.x = clamp(me.x, 55, AW - 55);
+    g.spawn -= dt;
+    if (g.spawn <= 0) {
+      g.spawn = 900 - 450 * p;
+      const r = Math.random(), kind = r < 0.08 ? 'gold' : r < 0.26 ? 'stink' : 'egg';
+      g.eggs.push({ kind, x: 40 + Math.random() * (AW - 80), y: 0, v: 0.25 + 0.25 * p, cls: 'egg ' + kind, html: kind === 'gold' ? GOLD_EGG : kind === 'stink' ? STINK_EGG : rand(g.looks), el: null });
+    }
+    for (const o of g.eggs) {
+      o.y += o.v * dt;
+      if (o.y >= CATCH_TOP && o.y <= CATCH_LOW && Math.abs(o.x - me.x) < 70) {
+        o.done = true;
+        if (o.kind === 'stink') { g.score = Math.max(0, g.score - 3); sfx('wrong'); popText(g, me.x, CATCH_TOP - 20, '🤢 Yuck! −3'); }
+        else { const n = o.kind === 'gold' ? 3 : 1; g.score += n; sfx('right'); popText(g, me.x, CATCH_TOP - 20, o.kind === 'gold' ? '✨ +3' : '+1'); }
+      }
+      if (o.y > AH + 90) o.done = true;
+      if (o.done) dropSprite(o); else drawSprite(o, a);
+    }
+    g.eggs = g.eggs.filter(o => !o.done);
+    drawSprite(me, a);
+  },
+  key(g, e, down) {
+    const k = e.key.toLowerCase();
+    if (k === 'arrowleft' || k === 'a') { g.keys.l = down; return true; }
+    if (k === 'arrowright' || k === 'd') { g.keys.r = down; return true; }
+    return false;
+  },
+  point(g, x) { g.me.target = clamp(x, 55, AW - 55); },
+};
+
+function vGame() {
+  const g = ui.game, G = GAME_UI[g.id], info = E.GAMES.find(x => x.id === g.id);
+  const head = (left, chips) => `<header class="top">${left}<h1>${info.icon} ${info.name}</h1><div class="chips">${chips}${soundBtn()}</div></header>`;
+  if (g.phase === 'intro') return head('<button class="btn sm noprint" data-act="park">← Pet Park</button>', `<span class="chip">🎟️ ${save.tickets}</span>`) +
+    `<main class="card stage"><div class="howto">${G.intro()}</div>
+    <p class="facts">${save.tickets ? `Costs 1 🎟️ ticket. You have ${save.tickets}.` : 'You need a 🎟️ ticket to play this.'}</p>
+    <button class="btn big" data-act="gamestart" ${save.tickets ? '' : 'disabled'}>Start ▶</button><p class="tiny">or press Enter</p></main>`;
+  if (g.phase === 'over') {
+    const best = save.arcade.best[g.id], unit = G.label === 'Moves' ? 'moves' : 'points';
+    return head('<button class="btn sm noprint" data-act="park">← Pet Park</button>', '') +
+      `<main class="card stage"><p class="shout">${g.res.best ? 'NEW BEST!' : G.secs ? 'Time is up!' : 'All done!'}</p><p class="bigfact">${g.score}</p>
+      <p class="facts">${unit}<br>${g.res.best ? 'That beats your old record!' : best ? `Your best is ${best}.` : 'Score some points to set a best.'}</p>
+      <div class="row" style="justify-content:center;margin:0"><button class="btn big" data-act="park">🎪 Pet Park</button><button class="btn" data-act="home">Home</button></div><p class="tiny">or press Enter</p></main>`;
+  }
+  return head(`<button class="btn sm noprint" data-act="gamequit">${ui.arm === 'quit' ? 'Tap again to quit' : '← Quit'}</button>`,
+    `<span class="chip">${G.label} <b id="gscore">${g.score}</b></span>${G.secs ? `<span class="chip">⏱ <b id="gtime">${Math.max(0, Math.ceil(g.left / 1000))}</b></span>` : ''}`) +
+    `<main class="card gamecard">${G.html(g)}</main>`;
 }
 
 /* ---------- screens ---------- */
@@ -1393,7 +1569,7 @@ function vCert() {
     <div class="parade" style="margin-top:18px">${S.facts.slice(0, 55).map(f => creatureSVG(f.id, 4, { size: 54, bed: save.bed, wear: save.worn[f.id] })).join('')}</div></section>`;
 }
 function render() {
-  const views = { welcome: vWelcome, who: vWho, home: vHome, round: vRound, summary: vSummary, book: vBook, shop: vShop, grown: vGrownups, cert: vCert, boss: vBoss, speed: vSpeed, park: vPark };
+  const views = { welcome: vWelcome, who: vWho, home: vHome, round: vRound, summary: vSummary, book: vBook, shop: vShop, grown: vGrownups, cert: vCert, boss: vBoss, speed: vSpeed, park: vPark, game: vGame };
   app.innerHTML = views[ui.screen]();
   const auto = app.querySelector('[autofocus]');
   if (auto) auto.focus();
@@ -1420,6 +1596,10 @@ const ACTS = {
   levelup: () => { const lv = E.levelInfo(save.stars).level; save.seeds += 20 * Math.max(0, lv - save.seenLevel); save.seenLevel = lv; persist(); sfx('grown'); render(); },
   boss: d => startBoss(d.key),
   speed: () => { leaveGame(); ui.speed = { phase: 'ready', score: 0 }; ui.screen = 'speed'; render(); },
+  gameopen: d => openGame(d.game),
+  gamestart: () => gameStart(),
+  gamequit: () => gameQuit(),
+  gamehit: d => { const g = ui.game; if (g && g.phase === 'play' && GAME_UI[g.id].hit) GAME_UI[g.id].hit(g, d); },
   speedgo: () => speedStart(),
   say: () => sayQ(askingNow() || ui.q),
   print: () => window.print(),
@@ -1458,6 +1638,7 @@ document.addEventListener('keydown', e => {
   const el = e.target instanceof Element ? e.target : null;
   if (el && el.closest('input, textarea')) return;
   if (el && el.closest('button') && (e.key === 'Enter' || e.key === ' ')) return;
+  if (ui.screen === 'game') { gameKey(e, true); return; }
   const q = askingNow();
   if (q) {
     const word = q.kind === 'w';
@@ -1479,6 +1660,9 @@ document.addEventListener('keydown', e => {
   else if (ui.screen === 'speed') { if (ui.speed.phase === 'ready') speedStart(); else if (ui.speed.phase === 'over') go('home'); }
   else if (ui.screen === 'home' || ui.screen === 'summary') startRound();
 });
+document.addEventListener('keyup', e => { if (ui.screen === 'game') gameKey(e, false); });
+app.addEventListener('pointermove', gamePoint);
+app.addEventListener('pointerdown', gamePoint);
 window.__hatchery = { ui, Mic, onVoice, get save() { return save; } };
 render();
 })();
