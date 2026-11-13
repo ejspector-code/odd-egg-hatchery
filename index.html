@@ -98,6 +98,13 @@ button{font:inherit;color:inherit}
 .words{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 14px}
 .words span{border:2px solid var(--ink);border-radius:8px;padding:2px 8px;font-size:.9rem}
 .hats b{align-self:center;min-width:4.5em;text-align:right}
+.games{display:flex;flex-direction:column;gap:12px}
+.game{display:flex;align-items:center;gap:14px;border:3px solid var(--ink);border-radius:18px;padding:12px 16px;background:#FFFBF2;flex-wrap:wrap}
+.game.locked{background:#F1ECF5}
+.gicon{font-size:2.2rem;flex:none}
+.gtext{flex:1;display:flex;flex-direction:column;min-width:12ch}
+.gtext b{font-size:1.25rem}
+.gtext .tiny{margin-top:2px}
 .veil{position:fixed;inset:0;background:rgba(59,42,74,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:10;overflow:auto}
 .veil .card{max-width:560px;width:100%;text-align:center;margin:auto}
 .pop{animation:pop .28s cubic-bezier(.2,1.5,.4,1) both}
@@ -658,7 +665,7 @@ const SPELL_TIPS = {
 const questText = q => ({
   rounds: `Finish ${plural(q.goal, 'round')}`, right: `Get ${q.goal} answers right`, streak: `Get ${q.goal} right in a row`, quick: `Get ${q.goal} speedy answers`,
   warm: `Warm up ${plural(q.goal, 'egg')}`, hatch: `Hatch ${plural(q.goal, 'egg')}`, grow: `Grow up ${plural(q.goal, 'pet')}`, boss: 'Beat a boss egg',
-  speed: `Score ${q.goal} in the speed nest`, all: 'All three quests done! Bonus +25 🌱',
+  speed: `Score ${q.goal} in the speed nest`, all: 'All three quests done! Bonus +25 🌱 +1 🎟️',
 }[q.type]);
 const questLine = qs => (qs || []).map(q => `<p class="trick" style="text-align:center">✅ ${q.type === 'all' ? questText(q) : 'Quest done: ' + questText(q) + '! +15 🌱 +5 ⭐'}</p>`).join('');
 
@@ -975,7 +982,7 @@ function onVoice(alts) {
 /* ---------- playing a round ---------- */
 function startRound() {
   clearTimeout(ui.timer);
-  ui.round = E.startRound();
+  ui.round = Object.assign(E.startRound(), { tix0: save.tickets });
   ui.screen = 'round';
   Mic.status = '';
   if (save.mic && micOK()) Mic.start();
@@ -1021,7 +1028,7 @@ function endRound() {
   const done = E.finishRound(save, r, Date.now());
   persist();
   Mic.stop();
-  ui.sum = { ok: r.ok, asked: r.asked, hatched: r.hatched.slice(), grown: r.grown.slice(), seeds: r.seeds, stars: r.stars || 0, quests: (r.quests || []).concat(done) };
+  ui.sum = { ok: r.ok, asked: r.asked, hatched: r.hatched.slice(), grown: r.grown.slice(), seeds: r.seeds, stars: r.stars || 0, quests: (r.quests || []).concat(done), tix: save.tickets - r.tix0 };
   ui.screen = 'summary';
   sfx('done');
   render();
@@ -1030,7 +1037,7 @@ function leaveGame() { clearTimeout(ui.timer); clearInterval(ui.tick); Mic.stop(
 
 function startBoss(key) {
   leaveGame();
-  ui.boss = Object.assign(E.startBoss(save, key, Date.now()), { phase: 'ask', line: rand(BOSS_TAUNT), res: null, last: null });
+  ui.boss = Object.assign(E.startBoss(save, key, Date.now()), { phase: 'ask', line: rand(BOSS_TAUNT), res: null, last: null, tix0: save.tickets });
   persist();
   ui.typed = ''; ui.screen = 'boss'; Mic.status = '';
   if (save.mic && micOK()) Mic.start();
@@ -1144,6 +1151,7 @@ function levelCard() {
   if (lv.level <= save.seenLevel) return '';
   const fresh = ITEMS.filter(it => it.lvl > save.seenLevel && it.lvl <= lv.level && !save.owned.includes(it.id)).map(it => it.name);
   if (save.seenLevel < E.SPEED_LEVEL && lv.level >= E.SPEED_LEVEL) fresh.push('the speed nest');
+  for (const g of E.GAMES.slice().reverse()) if (g.level > save.seenLevel && g.level <= lv.level) fresh.unshift(g.name + ' in Pet Park');
   return `<section class="card levelup pop"><p class="shout">⭐ LEVEL UP! ⭐</p><p class="petname">Level ${lv.level}: ${RANKS[lv.level - 1]}</p>
     <p class="facts">${fresh.length ? 'Unlocked: ' + esc(fresh.slice(0, 5).join(', ')) + (fresh.length > 5 ? ` and ${fresh.length - 5} more` : '') + '.' : 'Keep hatching!'}</p>
     <button class="btn big" data-act="levelup">Woohoo! +${20 * (lv.level - save.seenLevel)} 🌱</button></section>`;
@@ -1166,7 +1174,7 @@ function vHome() {
     <div class="col" style="align-items:stretch">${others.map(k => { const off = E.SUBJECTS[k].facts[0].kind === 'w' && !canSpeak; return `<button class="btn" data-act="subject" data-subject="${k}" ${off ? 'disabled' : ''}>${ICON[k]} <b>${E.SUBJECTS[k].name}</b><br><span class="tiny">${off ? 'This browser cannot read words aloud.' : E.SUBJECTS[k].blurb}</span></button>`; }).join('')}</div>
     <p style="margin-top:16px"><button class="btn sm" data-act="close">Not now</button></p></div></div>` : '';
   const speedUI = E.speedOpen(save) ? `<button class="btn" data-act="speed">⚡ Speed nest${save.speedBest ? ` (best ${save.speedBest})` : ''}</button>` : `<p class="tiny" style="margin:0">⚡ The speed nest opens at level ${E.SPEED_LEVEL}, once 8 pets have hatched.</p>`;
-  return `<header class="top">${logo()}<div class="chips"><span class="chip">⭐ Level ${lv.level}</span><span class="chip">🌱 ${plural(save.seeds, 'seed')}</span><span class="chip">🔥 ${plural(st.streak, 'day')} in a row</span>${soundBtn()}</div></header>
+  return `<header class="top">${logo()}<div class="chips"><span class="chip">⭐ Level ${lv.level}</span><span class="chip">🌱 ${plural(save.seeds, 'seed')}</span><span class="chip">🎟️ ${save.tickets}</span><span class="chip">🔥 ${plural(st.streak, 'day')} in a row</span>${soundBtn()}</div></header>
   ${tabs}${levelCard()}
   <section class="card hero"><div>
     <p class="hello">Hi ${esc(save.name)}!</p><p class="lead">${line}</p>
@@ -1185,7 +1193,7 @@ function vHome() {
     <div class="stages"><span>🥶 <b>${st.by[0]}</b> cold</span><span>🥚 <b>${st.by[1] + st.by[2]}</b> warming</span><span>🐣 <b>${st.by[3]}</b> hatched</span><span>⭐ <b>${st.by[4]}</b> grown up</span></div>
     <div class="tables">${st.groups.map(g => `<div class="tb ${g.n === g.of ? 'done' : ''}"><b>${g.label}${save.bosses[g.key] && save.bosses[g.key].won ? ' 🏆' : ''}</b>${g.n}/${g.of}</div>`).join('')}</div>
   </section>
-  <nav class="row"><button class="btn" data-act="book">📖 Pet book</button><button class="btn" data-act="shop">🛍️ Shop</button>${save.done ? '<button class="btn" data-act="cert">🏆 Certificate</button>' : ''}<button class="btn" data-act="who">👥 Switch player</button><button class="btn" data-act="grown">Grown-ups</button></nav>
+  <nav class="row"><button class="btn" data-act="book">📖 Pet book</button><button class="btn" data-act="shop">🛍️ Shop</button><button class="btn" data-act="park">🎪 Pet Park${save.tickets ? ` 🎟️ ${save.tickets}` : ''}</button>${save.done ? '<button class="btn" data-act="cert">🏆 Certificate</button>' : ''}<button class="btn" data-act="who">👥 Switch player</button><button class="btn" data-act="grown">Grown-ups</button></nav>
   ${saveBroken ? '<p class="tiny warn">This browser is not letting the game save. Progress may be lost when you close it.</p>' : ''}
   <div class="parade">${pets.map((f, i) => `<span style="animation-delay:${-i * 0.23}s" class="bob">${creatureSVG(f.id, save.facts[f.id].s, { size: 76, bed: save.bed, wear: save.worn[f.id] })}</span>`).join('')}</div>${moreUI}`;
 }
@@ -1249,7 +1257,7 @@ function vBoss() {
     const win = b.res.over === 'win';
     return top('') + `<main class="card stage">${bossSVG(b.right, 200, win)}
       <p class="shout">${win ? 'YOU CRACKED THE BOSS EGG!' : 'The boss egg rolled away laughing.'}</p>
-      <p class="facts">${win ? `The ${esc(b.label)} boss is beaten for good. +40 🌱 +${E.STARS.boss} ⭐` : `It tricked you on <b>${esc(qText(b.last))}</b>.<br>It will be back tomorrow for a rematch, and the ones you missed will pop up in your next round.`}</p>
+      <p class="facts">${win ? `The ${esc(b.label)} boss is beaten for good. +40 🌱 +${E.STARS.boss} ⭐ +${save.tickets - b.tix0} 🎟️` : `It tricked you on <b>${esc(qText(b.last))}</b>.<br>It will be back tomorrow for a rematch, and the ones you missed will pop up in your next round.`}</p>
       ${questLine(b.res.quests)}
       <button class="btn big" data-act="home">${win ? 'Hooray ▶' : 'Next time ▶'}</button><p class="tiny">or press Enter</p></main>`;
   }
@@ -1288,7 +1296,8 @@ function vSummary() {
   return `<header class="top">${logo()}<div class="chips"><span class="chip">🌱 ${save.seeds}</span><span class="chip">🔥 ${plural(st.streak, 'day')} in a row</span></div></header>
   ${levelCard()}<section class="card hero"><div><p class="hello">Round done!</p>
     <p class="lead">${cheer} You got <b>${s.ok} of ${s.asked}</b> right and earned <b>${plural(s.seeds, 'seed')}</b>${s.stars ? ` and <b>${plural(s.stars, 'star')}</b>` : ''}.</p>
-    <div class="row" style="margin:0"><button class="btn big" data-act="play">Another round ▶</button><button class="btn" data-act="home">Home</button></div>
+    ${s.tix ? `<p class="trick" style="text-align:center;margin-top:0">🎟️ +${plural(s.tix, 'ticket')} for Pet Park!</p>` : ''}
+    <div class="row" style="margin:0"><button class="btn big" data-act="play">Another round ▶</button>${s.tix ? '<button class="btn" data-act="park">🎪 Pet Park</button>' : ''}<button class="btn" data-act="home">Home</button></div>
     <p class="tiny">${st.grown} of ${st.total} pets are all grown up. Come back tomorrow to check on your eggs.</p></div></section>
   ${s.quests.length ? `<section class="card"><h2>Quests finished</h2>${questLine(s.quests)}</section>` : ''}
   ${s.grown.length ? `<section class="card"><h2>All grown up this round</h2><div class="grid">${show(s.grown, 4)}</div></section>` : ''}
@@ -1333,13 +1342,26 @@ function vShop() {
   const blurb = ui.shopTab === 'bed' ? 'Buy a bed and every egg in your hatchery sleeps in it.' : 'A grown-up pet can wear one hat, one face thing, one outfit and one bag. Dress your pets in the pet book.';
   return backBar('Shop') + `<div class="row" style="margin-bottom:14px">${tabs}</div><section class="card"><p class="lead" style="max-width:none">${blurb}</p><div class="grid">${items}</div></section>`;
 }
+function vPark() {
+  const lv = E.levelInfo(save.stars).level, open = E.gamesOpen(save), t = save.tickets;
+  const cards = E.GAMES.map(g => {
+    const on = open.includes(g.id), best = save.arcade.best[g.id];
+    const note = !on ? `Opens at level ${g.level}. You are level ${lv}.` : !best ? 'No best yet' : g.fewer ? `Fewest moves: ${best}` : `Best: ${best}`;
+    return `<div class="game ${on ? '' : 'locked'}"><span class="gicon" aria-hidden="true">${on ? g.icon : '🔒'}</span><div class="gtext"><b>${g.name}</b><span class="tiny">${note}</span></div>
+      ${on ? `<button class="btn" data-act="gameopen" data-game="${g.id}" ${t ? '' : 'disabled'}>Play ▶ 1 🎟️</button>` : ''}</div>`;
+  }).join('');
+  return `<header class="top"><button class="btn sm noprint" data-act="home">← Home</button><h1>🎪 Pet Park</h1><div class="chips"><span class="chip">🎟️ ${plural(t, 'ticket')}</span></div></header>
+  <section class="card"><p class="lead" style="max-width:none">${t ? 'Pick a game! Each one costs 1 🎟️ ticket.' : 'You need a 🎟️ ticket to play. Go earn one!'}</p>
+    <div class="games">${cards}</div>
+    <p class="tiny" style="margin-top:14px">How to earn a 🎟️: get 9 of 12 right in a round · beat a boss egg · finish all 3 daily quests.</p></section>`;
+}
 function vGrownups() {
   const now = Date.now(), st = E.stats(save, now), S = E.SUBJECTS[save.subject];
   const kinds = save.subject === 'times' ? [['x', '×']] : [['+', '+'], ['-', '−']];
   const nums = Array.from({ length: 10 }, (_, i) => i + 1);
   const grids = isSpelling() ? `<div class="words">${S.facts.map(f => `<span class="s${save.facts[f.id].s}c" title="right ${save.facts[f.id].r}, wrong ${save.facts[f.id].w}">${f.word}</span>`).join('')}</div>` : kinds.map(([k, sym]) => `<div><table class="pgrid" aria-label="Progress for ${sym}"><tr><th>${sym}</th>${nums.map(n => `<th>${n}</th>`).join('')}</tr>${nums.map(a => `<tr><th>${a}</th>${nums.map(b => { const id = Math.min(a, b) + k + Math.max(a, b), f = save.facts[id]; return `<td class="s${f.s}c" title="${factText(id, true)}: right ${f.r}, wrong ${f.w}"></td>`; }).join('')}</tr>`).join('')}</table></div>`).join('');
   const days = Object.keys(save.days).sort().reverse().slice(0, 14);
-  const log = days.length ? `<table class="log"><tr><th>Day</th><th>Rounds</th><th>Questions</th><th>Right</th><th>Hatched</th><th>Memorized</th></tr>${days.map(k => { const d = save.days[k]; return `<tr><td>${k}</td><td>${d.rounds}</td><td>${d.q}</td><td>${d.q ? Math.round(d.ok / d.q * 100) : 0}%</td><td>${d.hatched}</td><td>${d.grown}</td></tr>`; }).join('')}</table>` : '<p class="tiny">No rounds played yet.</p>';
+  const log = days.length ? `<table class="log"><tr><th>Day</th><th>Rounds</th><th>Questions</th><th>Right</th><th>Hatched</th><th>Memorized</th><th>🎟️ Pet Park</th></tr>${days.map(k => { const d = save.days[k]; return `<tr><td>${k}</td><td>${d.rounds}</td><td>${d.q}</td><td>${d.q ? Math.round(d.ok / d.q * 100) : 0}%</td><td>${d.hatched}</td><td>${d.grown}</td><td>${d.tix || d.games ? `${d.tix || 0} earned · ${d.games || 0} played` : ''}</td></tr>`; }).join('')}</table>` : '<p class="tiny">No rounds played yet.</p>';
   const code = btoa(unescape(encodeURIComponent(JSON.stringify(root))));
   return backBar('For grown-ups') + `
   <section class="card"><h2>${esc(save.name)}: ${S.name}</h2>
@@ -1353,6 +1375,7 @@ function vGrownups() {
   <section class="card"><h2>Day by day</h2>${log}</section>
   <section class="card"><h2>How it works</h2>
     <p>A fact counts as memorized when it has been answered correctly on separate days, with the last answer given quickly (under ${E.SOLID_MS / 1000} seconds for math, a little longer for spelling). Stars and levels only come from eggs moving forward, quests and boss eggs. Boss eggs and the speed nest never count toward memorizing; a miss there just brings that fact back in the next round. Missed facts come back sooner. Memorized facts are checked again after a week, then every three weeks. One round is ${E.ROUND_LEN} questions. A round a day works better than a long session once a week.</p>
+    <p style="margin-top:8px">Each Pet Park mini game costs one 🎟️ ticket. Tickets only come from a round with at least 75% right, beating a boss egg, or finishing all three daily quests. The mini games give no seeds or stars.</p>
     <p class="tiny">The microphone uses the browser's own speech recognition. In Chrome that sends your child's voice to Google to be turned into text. This game keeps no recordings.</p></section>
   <section class="card"><h2>Back up or move progress</h2>
     <p class="tiny" style="margin:0 0 8px">Progress lives in this browser on this computer. Copy this code somewhere safe to back it up (it covers every player). Paste a code and press Load to restore.</p>
@@ -1370,7 +1393,7 @@ function vCert() {
     <div class="parade" style="margin-top:18px">${S.facts.slice(0, 55).map(f => creatureSVG(f.id, 4, { size: 54, bed: save.bed, wear: save.worn[f.id] })).join('')}</div></section>`;
 }
 function render() {
-  const views = { welcome: vWelcome, who: vWho, home: vHome, round: vRound, summary: vSummary, book: vBook, shop: vShop, grown: vGrownups, cert: vCert, boss: vBoss, speed: vSpeed };
+  const views = { welcome: vWelcome, who: vWho, home: vHome, round: vRound, summary: vSummary, book: vBook, shop: vShop, grown: vGrownups, cert: vCert, boss: vBoss, speed: vSpeed, park: vPark };
   app.innerHTML = views[ui.screen]();
   const auto = app.querySelector('[autofocus]');
   if (auto) auto.focus();
@@ -1380,7 +1403,7 @@ function render() {
 function go(screen) { if (inGame()) leaveGame(); ui.screen = screen; ui.detail = null; ui.more = false; ui.arm = ''; ui.note = ''; render(); }
 const ACTS = {
   play: () => startRound(),
-  home: () => go('home'), book: () => go('book'), shop: () => go('shop'), grown: () => go('grown'), cert: () => go('cert'), who: () => go('who'),
+  home: () => go('home'), book: () => go('book'), shop: () => go('shop'), grown: () => go('grown'), cert: () => go('cert'), who: () => go('who'), park: () => go('park'),
   addplayer: () => go('welcome'),
   pick: d => { root.cur = Number(d.i); save = root.players[root.cur]; persist(); go('home'); },
   next: () => closeOverlay(),
