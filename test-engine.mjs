@@ -453,13 +453,14 @@ test('cloud: syncPlan decides what to do with a save', () => {
   const doc = (rev, save) => ({ rev, save });
   assert.deepEqual(E.syncPlan({ rev: 0, dirty: true }, null, less), { act: 'push' }, 'nothing in the cloud yet');
   assert.deepEqual(E.syncPlan({ rev: 0, dirty: false }, null, less), { act: 'push' });
-  assert.deepEqual(E.syncPlan({ rev: 2, dirty: false, force: true }, doc(5, more), less), { act: 'push', force: true }, 'a restore always goes up');
+  assert.deepEqual(E.syncPlan({ rev: 2, dirty: false, force: true }, doc(5, more), less), { act: 'push', force: true, drop: 'cloud' }, 'a restore always goes up, and the copy it replaces is kept');
   assert.deepEqual(E.syncPlan({ rev: 5, dirty: false }, doc(5, more), less), { act: 'none' });
   assert.deepEqual(E.syncPlan({ rev: 5, dirty: true }, doc(5, more), less), { act: 'push' });
   assert.deepEqual(E.syncPlan({ rev: 4, dirty: false }, doc(5, less), more), { act: 'take' }, 'a stale computer takes the newer cloud copy');
   assert.deepEqual(E.syncPlan({ rev: 4, dirty: true }, doc(5, less), more), { act: 'push', force: true, drop: 'cloud' }, 'both changed: more stars here');
   assert.deepEqual(E.syncPlan({ rev: 4, dirty: true }, doc(5, more), less), { act: 'take', drop: 'local' }, 'both changed: more stars in the cloud');
-  assert.deepEqual(E.syncPlan({ rev: 7, dirty: false }, doc(5, more), less), { act: 'push', force: true }, 'this computer is ahead of the cloud');
+  assert.deepEqual(E.syncPlan({ rev: 7, dirty: false }, doc(5, more), less), { act: 'push', force: true, drop: 'cloud' }, 'this computer is ahead of the cloud: the cloud copy is kept before it is replaced');
+  assert.deepEqual(E.syncPlan({ rev: 0, dirty: true, force: true }, null, less), { act: 'push' }, 'a restore with nothing in the cloud has nothing to keep');
 });
 
 console.log(`\n${passed} tests passed`);

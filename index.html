@@ -577,7 +577,8 @@ const Engine = (() => {
      doc: the cloud copy ({ rev, save }) or null. Returns what to do: push, take the cloud copy, or nothing,
      plus which copy to keep aside first when the two disagree. */
   function syncPlan(link, doc, local) {
-    if (!doc || link.force || link.rev > doc.rev) return doc ? { act: 'push', force: true } : { act: 'push' };
+    if (!doc) return { act: 'push' };
+    if (link.force || link.rev > doc.rev) return { act: 'push', force: true, drop: 'cloud' };
     if (link.rev === doc.rev) return { act: link.dirty ? 'push' : 'none' };
     if (!link.dirty) return { act: 'take' };
     return localWins(local, doc.save) ? { act: 'push', force: true, drop: 'cloud' } : { act: 'take', drop: 'local' };
@@ -658,7 +659,8 @@ const Cloud = (() => {
         if (!force && d && d.rev !== baseRev) return { conflict: { rev: d.rev, save: d.save } };
         const rev = (d ? d.rev : 0) + 1;
         tx.set(ref, { login, name: String(meta.name || ''), stars: meta.stars | 0, rev, save: text, updated: fs.serverTimestamp() });
-        if (!back.exists()) tx.set(bref, { rev, save: text, updated: fs.serverTimestamp() });
+        // the day's backup is the save as it was before the day's first upload
+        if (!back.exists()) tx.set(bref, d ? { rev: d.rev, save: d.save, updated: fs.serverTimestamp() } : { rev, save: text, updated: fs.serverTimestamp() });
         return { rev };
       });
     }),
@@ -795,26 +797,35 @@ function syncPlayer(id) {
   })();
   return s.p;
 }
+/* Pull, decide (E.syncPlan), act. Anything can change while a cloud call is out (an answer, a restore, a new
+   player list), so after every await the plan is made again from what is true now. Uploads only land on top
+   of the cloud copy they were planned against; if the cloud moved meanwhile, plan again. */
 async function syncOnce(id) {
-  let link = root.cloud[id];
-  if (!link || !playerById(id)) return;
-  setCloudStatus(id, 'busy');
+  const first = root.cloud[id];
+  if (!first || !playerById(id)) return;
   try {
-    let doc = await Cloud.pull(link.login);
-    for (let tries = 0; tries < 3; tries++) {
-      link = root.cloud[id];
-      const local = playerById(id);
+    let doc = await Cloud.pull(first.login);
+    pulledAt[id] = Date.now();
+    for (let tries = 0; tries < 6; tries++) {
+      const link = root.cloud[id], local = playerById(id);
       if (!link || !local) return;
+      const n = edits[id] | 0, moved = () => (edits[id] | 0) !== n || playerById(id) !== local || root.cloud[id] !== link;
       const cloudSave = doc && E.repair(JSON.parse(doc.save), Date.now());
       const plan = E.syncPlan(link, cloudSave && { rev: doc.rev, save: cloudSave }, local);
-      if (plan.drop === 'local') await Cloud.keep(link.login, JSON.stringify(local));
-      if (plan.drop === 'cloud') await Cloud.keep(link.login, doc.save);
       if (plan.act === 'none') break;
+      if (plan.act === 'take' && inGame() && save && save.id === id) break; // never mid-game; the sync after it sorts this out
+      if (plan.drop) {
+        await Cloud.keep(link.login, plan.drop === 'local' ? JSON.stringify(local) : doc.save);
+        if (moved()) continue;
+      }
       if (plan.act === 'take') { applyCloud(id, cloudSave, doc.rev); break; }
-      const n = edits[id] | 0;
-      const r = await Cloud.push(link.login, JSON.stringify(local), link.rev, !!plan.force);
+      const text = JSON.stringify(local);
+      const r = await Cloud.push(link.login, text, doc ? doc.rev : 0, false);
       if (r.conflict) { doc = r.conflict; continue; }
-      link.rev = r.rev; link.force = false; link.dirty = (edits[id] | 0) !== n;
+      link.rev = r.rev;
+      doc = { rev: r.rev, save: text };
+      if (moved()) { link.dirty = true; writeLocal(); continue; }
+      link.dirty = false; link.force = false;
       writeLocal();
       break;
     }
@@ -831,12 +842,27 @@ function applyCloud(id, cloudSave, rev) {
   if (i < 0 || !link) return false;
   if (cloudSave.id !== id) { delete root.cloud[id]; root.cloud[cloudSave.id] = link; }
   root.players[i] = cloudSave;
-  if (save && save.id === id) save = cloudSave;
+  if (save && save.id === id) { save = cloudSave; ui.detail = null; } // the open pet may not exist in the new copy
   link.rev = rev; link.dirty = false; link.force = false;
   writeLocal();
-  if (!inGame() && ['who', 'home', 'grown', 'book', 'shop'].includes(ui.screen)) render();
+  if (!inGame() && ['who', 'home', 'book', 'shop'].includes(ui.screen)) render(); // not grown-ups: it would wipe a pasted code
   return true;
 }
+// A linked player who has not heard from the cloud in a while waits (up to 3 seconds) for the newest copy before a game starts.
+const pulledAt = {};
+let freshWait = false;
+function fresh(start) {
+  const id = save && root.cloud[save.id] ? save.id : null;
+  if (!id || Date.now() - (pulledAt[id] || 0) < 30000) return start();
+  if (freshWait) return;
+  freshWait = true;
+  Promise.race([syncPlayer(id), new Promise(r => setTimeout(r, 3000))]).then(() => {
+    freshWait = false;
+    if (!inGame() || (ui.screen === 'speed' && ui.speed && ui.speed.phase === 'ready')) start();
+  });
+}
+// The end of a game uploads at once, so closing the laptop right after still gets it to the cloud.
+function syncNow() { if (save && root.cloud[save.id]) { clearTimeout(timers[save.id]); syncPlayer(save.id); } }
 let root = loadRoot();
 let save = root.players[root.cur] || null;
 const ui = { screen: save ? (root.players.length > 1 ? 'who' : 'home') : 'welcome', round: null, q: null, typed: '', phase: 'ask', overlay: null, res: null, t0: 0, lock: 0, bubble: '', timer: 0, detail: null, sum: null, arm: '', note: '', shopTab: 'hat', boss: null, speed: null, tick: 0, more: false, cloud: {}, cf: cfFresh() };
@@ -1184,6 +1210,7 @@ function endRound() {
   ui.screen = 'summary';
   sfx('done');
   render();
+  syncNow();
 }
 function leaveGame() { clearTimeout(ui.timer); clearInterval(ui.tick); Mic.stop(); if (canSpeak) speechSynthesis.cancel(); ui.overlay = null; ui.round = null; ui.boss = null; ui.speed = null; }
 
@@ -1202,7 +1229,7 @@ function bossSubmit() {
   const q = b.qs[b.i], res = E.bossAnswer(save, b, q.kind === 'w' ? ui.typed : Number(ui.typed), Date.now());
   persist();
   b.res = res; b.last = q;
-  if (res.over) { b.phase = 'over'; ui.lock = Date.now() + 900; Mic.stop(); sfx(res.over === 'win' ? 'grown' : 'wrong'); render(); return; }
+  if (res.over) { b.phase = 'over'; ui.lock = Date.now() + 900; Mic.stop(); sfx(res.over === 'win' ? 'grown' : 'wrong'); render(); syncNow(); return; }
   b.phase = 'feedback';
   b.line = res.correct ? rand(BOSS_OUCH) : q.kind === 'w' ? `Ha! It is spelled ${q.ans}.` : `Ha! ${q.x} ${q.op} ${q.y} is ${q.ans}.`;
   sfx(res.correct ? 'right' : 'wrong');
@@ -1266,6 +1293,7 @@ function speedEnd() {
   if (canSpeak) speechSynthesis.cancel();
   sfx('done');
   render();
+  syncNow();
 }
 
 /* ---------- screens ---------- */
@@ -1545,7 +1573,7 @@ function render() {
 /* ---------- buttons and keys ---------- */
 function go(screen) { if (inGame()) leaveGame(); ui.screen = screen; ui.detail = null; ui.more = false; ui.arm = ''; ui.note = ''; render(); }
 const ACTS = {
-  play: () => startRound(),
+  play: () => fresh(startRound),
   home: () => go('home'), book: () => go('book'), shop: () => go('shop'), grown: () => go('grown'), cert: () => go('cert'), who: () => go('who'),
   addplayer: () => go('welcome'),
   pick: d => { root.cur = Number(d.i); save = root.players[root.cur]; writeLocal(); go('home'); if (root.cloud[save.id]) syncPlayer(save.id); },
@@ -1561,9 +1589,9 @@ const ACTS = {
   tab: d => { ui.shopTab = d.tab; render(); },
   usebed: d => { save.bed = save.bed === d.item ? '' : d.item; persist(); render(); },
   levelup: () => { const lv = E.levelInfo(save.stars).level; save.seeds += 20 * Math.max(0, lv - save.seenLevel); save.seenLevel = lv; persist(); sfx('grown'); render(); },
-  boss: d => startBoss(d.key),
+  boss: d => fresh(() => startBoss(d.key)),
   speed: () => { leaveGame(); ui.speed = { phase: 'ready', score: 0 }; ui.screen = 'speed'; render(); },
-  speedgo: () => speedStart(),
+  speedgo: () => fresh(speedStart),
   say: () => sayQ(askingNow() || ui.q),
   print: () => window.print(),
   copy: () => { const t = document.querySelector('#code'); t.select(); const done = ok => { ui.note = ok ? 'Copied.' : 'Select the code and copy it by hand.'; render(); }; if (navigator.clipboard) navigator.clipboard.writeText(t.value).then(() => done(true), () => done(false)); else done(false); },
@@ -1573,7 +1601,7 @@ const ACTS = {
     try {
       const text = document.querySelector('#code').value.trim();
       const raw = JSON.parse(text.startsWith('{') ? text : decodeURIComponent(escape(atob(text))));
-      const restore = id => { const l = root.cloud[id]; if (l) { l.force = true; l.dirty = true; } };
+      const restore = id => { const l = root.cloud[id]; if (l) { l.force = true; l.dirty = true; edits[id] = (edits[id] | 0) + 1; } };
       if (raw && raw.subject && raw.facts) {
         const one = E.repair(raw, Date.now());
         if (!one || !save) throw new Error('not a save');
@@ -1591,11 +1619,23 @@ const ACTS = {
     } catch (err) { ui.note = 'That code did not work. Nothing was changed.'; }
     render();
   },
-  erase: () => {
+  erase: async () => {
     if (ui.arm !== 'erase') { ui.arm = 'erase'; render(); return; }
-    const link = root.cloud[save.id];
-    if (link) { Cloud.forget(link.login).catch(() => {}); delete root.cloud[save.id]; }
-    root.players.splice(root.cur, 1); root.cur = 0; save = root.players[0] || null; writeLocal();
+    const id = save.id, name = save.name;
+    if (root.cloud[id]) {
+      // "still saved in the cloud" has to be true before this computer's copy goes
+      if (root.cloud[id].dirty || root.cloud[id].force) { ui.arm = ''; ui.note = 'Saving to the cloud first…'; render(); await syncPlayer(id); }
+      const link = root.cloud[id];
+      if (link && (link.dirty || link.force)) {
+        ui.arm = ''; ui.note = `Some of ${name}'s pets are not in the cloud yet, so nothing was removed. ${ui.cloud[id] === 'pin' ? 'Type the PIN on the home screen' : 'Connect to the internet'}, then try again.`;
+        if (ui.screen === 'grown') render();
+        return;
+      }
+      if (link) { Cloud.forget(link.login).catch(() => {}); delete root.cloud[id]; }
+    }
+    const i = root.players.findIndex(p => p.id === id);
+    if (i >= 0) root.players.splice(i, 1);
+    root.cur = 0; save = root.players[0] || null; writeLocal();
     go(save ? 'who' : 'welcome');
   },
 };
@@ -1794,8 +1834,8 @@ document.addEventListener('keydown', e => {
   if (e.key !== 'Enter' || Date.now() < ui.lock) return;
   if (ui.screen === 'round') { if (ui.phase === 'feedback') nextQ(); }
   else if (ui.screen === 'boss') { if (ui.boss.phase === 'feedback') bossNext(); else if (ui.boss.phase === 'over') go('home'); }
-  else if (ui.screen === 'speed') { if (ui.speed.phase === 'ready') speedStart(); else if (ui.speed.phase === 'over') go('home'); }
-  else if (ui.screen === 'home' || ui.screen === 'summary') startRound();
+  else if (ui.screen === 'speed') { if (ui.speed.phase === 'ready') fresh(speedStart); else if (ui.speed.phase === 'over') go('home'); }
+  else if (ui.screen === 'home' || ui.screen === 'summary') fresh(startRound);
 });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') { if (!inGame()) syncAll(); }
