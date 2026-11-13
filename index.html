@@ -116,6 +116,19 @@ button{font:inherit;color:inherit}
 .spr.egg.gold{width:7.5%;filter:drop-shadow(0 0 8px #FFC93C) drop-shadow(0 0 3px #fff)}
 .spr.me{width:11%;z-index:2}
 .spr.fx{line-height:1.1;font-size:clamp(1rem,3vw,1.7rem);white-space:nowrap;z-index:3;color:var(--ink);text-shadow:0 2px 0 #fff;animation:floatup .7s ease-out forwards}
+.arena.field{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(3,minmax(0,1fr));background:linear-gradient(#DFF3FF,#E9F7D9 35%,#CDEBB0)}
+.burrow{position:relative;overflow:hidden;border:0;background:none;padding:0;margin:0;cursor:pointer;font:inherit;color:inherit}
+.burrow:focus-visible{outline:4px solid var(--sky);outline-offset:-4px}
+.burrow .popper{position:absolute;left:50%;bottom:16%;width:42%;transform:translate(-50%,140%);visibility:hidden;transition:transform .12s ease-out,visibility 0s .12s;line-height:0;z-index:1}
+.burrow.up .popper{transform:translate(-50%,6%);visibility:visible;transition:transform .12s ease-out,visibility 0s}
+.burrow.bonked .popper{transform:translate(-50%,28%) scale(1.15,.8);visibility:visible;transition:transform .12s ease-out,visibility 0s}
+.burrow .popper svg{width:100%;height:auto;display:block}
+.burrow .crown{position:absolute;right:-30%;top:6%;transform:rotate(18deg);font-size:clamp(1rem,3.4vw,2.2rem);line-height:1}
+.burrow .popper.king svg{filter:drop-shadow(0 0 8px #FFC93C) drop-shadow(0 0 3px #fff)}
+.burrow .hole{position:absolute;left:22%;right:22%;bottom:17%;height:12%;background:#4A3660;border-radius:50%;z-index:0}
+.burrow .lip{position:absolute;left:14%;right:14%;bottom:5%;height:19%;background:#C98B48;border:3px solid var(--ink);border-radius:50% 50% 45% 45%;z-index:2}
+.burrow .num{position:absolute;top:6px;left:8px;z-index:3;background:#fff;border:2px solid var(--ink);border-radius:8px;padding:0 7px;font-size:.95rem;line-height:1.4}
+@media (max-width:640px){.arena.field{aspect-ratio:1/1}}
 @keyframes floatup{to{transform:translate(-50%,-170%);opacity:0}}
 .veil{position:fixed;inset:0;background:rgba(59,42,74,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:10;overflow:auto}
 .veil .card{max-width:560px;width:100%;text-align:center;margin:auto}
@@ -1144,6 +1157,7 @@ function parkPets(n) {
   return out;
 }
 const arenaEl = () => document.querySelector('#arena');
+const FLOOR_RE = /<ellipse cx="60" cy="122"[^>]*\/>/; // the ground shadow creatureSVG draws under a pet
 /* Keep a sprite's element on the page and in place. (x, y) is the sprite's bottom middle, in game units. */
 function drawSprite(o, a) {
   if (!o.el || !o.el.isConnected) { o.el = document.createElement('div'); o.el.className = 'spr ' + o.cls; o.el.innerHTML = o.html; a.appendChild(o.el); }
@@ -1235,7 +1249,7 @@ GAME_UI.catch = {
     const top = E.petRoster(save)[0] || { id: E.SUBJECTS[save.subject].facts[0].id, stage: 1, wear: {} };
     g.me = { x: AW / 2, y: AH - 8, cls: 'me', html: creatureSVG(top.id, top.stage, { wear: top.wear }), el: null, target: null };
     // falling eggs are in mid-air, so drop the floor shadow creatureSVG draws under them
-    g.looks = shuffle(E.SUBJECTS[save.subject].facts.map(f => f.id)).slice(0, 8).map(id => creatureSVG(id, 1).replace(/<ellipse cx="60" cy="122"[^>]*\/>/, ''));
+    g.looks = shuffle(E.SUBJECTS[save.subject].facts.map(f => f.id)).slice(0, 8).map(id => creatureSVG(id, 1).replace(FLOOR_RE, ''));
     g.eggs = []; g.spawn = 400; g.keys = { l: false, r: false };
   },
   html: () => '<div id="arena" class="arena sky"></div>',
@@ -1271,6 +1285,50 @@ GAME_UI.catch = {
     return false;
   },
   point(g, x) { g.me.target = clamp(x, 55, AW - 55); },
+};
+
+/* Pop-up Pets: bonk pets as they pop out of nine nests. */
+GAME_UI.pop = {
+  secs: 60, label: 'Score',
+  intro: () => `<p>Pets pop out of their nests. Bonk them before they duck back down!</p>
+    <p class="trick" style="text-align:center">🐣 pet = 1 point · 👑 pet in a crown = 3 points · 👹 boss egg = minus 2, so leave it alone!</p>
+    <p>Click a pet, or press its number: <b>1 2 3</b> on top, <b>4 5 6</b> in the middle, <b>7 8 9</b> at the bottom.</p>`,
+  setup(g) {
+    g.pets = parkPets(9).map(p => creatureSVG(p.id, p.stage, { wear: p.wear }).replace(FLOOR_RE, ''));
+    g.holes = Array(9).fill(null); g.next = 500; g.k = 0;
+  },
+  html: () => `<div id="arena" class="arena field">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<button class="burrow" data-act="gamehit" data-n="${n}" aria-label="Nest ${n}"><span class="popper"></span><span class="hole"></span><span class="lip"></span><span class="num">${n}</span></button>`).join('')}</div>`,
+  frame(g, dt, a) {
+    const p = Math.min(1, g.t / 60000);
+    for (let i = 0; i < 9; i++) if (g.holes[i] && g.t >= g.holes[i].until) g.holes[i] = null;
+    g.next -= dt;
+    const empty = [0, 1, 2, 3, 4, 5, 6, 7, 8].filter(i => !g.holes[i]);
+    if (g.next <= 0 && empty.length > 6) { // at most 3 up at once
+      g.next = 1100 - 500 * p;
+      const r = Math.random(), kind = r < 0.06 ? 'king' : r < 0.2 ? 'boss' : 'pet';
+      const html = kind === 'boss' ? bossSVG(0, 100, false) : rand(g.pets) + (kind === 'king' ? '<span class="crown">👑</span>' : '');
+      g.holes[rand(empty)] = { k: ++g.k, kind, html, until: g.t + 1400 - 600 * p, hit: false };
+    }
+    a.querySelectorAll('.burrow').forEach((el, i) => {
+      const h = g.holes[i], who = el.querySelector('.popper');
+      if (h && who.dataset.k !== String(h.k)) { who.innerHTML = h.html; who.dataset.k = h.k; who.className = 'popper ' + h.kind; } // when empty, the old pet stays inside to duck down
+      el.classList.toggle('up', !!h && !h.hit);
+      el.classList.toggle('bonked', !!h && h.hit);
+    });
+  },
+  hit(g, d) {
+    const i = (d.n | 0) - 1, h = g.holes[i];
+    if (!h || h.hit) return;
+    h.hit = true; h.until = g.t + 220;
+    const x = AW * ((i % 3) + 0.5) / 3, y = AH * (Math.floor(i / 3) + 0.35) / 3;
+    if (h.kind === 'boss') { g.score = Math.max(0, g.score - 2); sfx('wrong'); popText(g, x, y, '👹 Ouch! −2'); }
+    else { const n = h.kind === 'king' ? 3 : 1; g.score += n; sfx('right'); popText(g, x, y, n === 3 ? '👑 +3' : 'Bonk! +1'); }
+  },
+  key(g, e, down) {
+    if (!/^[1-9]$/.test(e.key)) return false;
+    if (down && !e.repeat) GAME_UI.pop.hit(g, { n: e.key });
+    return true;
+  },
 };
 
 function vGame() {
