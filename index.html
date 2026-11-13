@@ -237,7 +237,7 @@ const Engine = (() => {
   function newSave(now, subject, name) {
     const facts = {};
     for (const f of SUBJECTS[subject].facts) facts[f.id] = { s: 0, due: 0, seen: 0, r: 0, w: 0, last: 0 };
-    return { id: 'p' + now + Math.floor(Math.random() * 1e6), name: name || 'Keeper', subject, created: now, facts, seeds: 0, stars: 0, seenLevel: 1, owned: [], worn: {}, bed: '', quests: null, bosses: {}, speedBest: 0, speedDay: '', days: {}, badges: [], done: 0, tracks: {}, sound: true, mic: false };
+    return { id: 'p' + now + Math.floor(Math.random() * 1e6), name: name || 'Keeper', subject, created: now, facts, seeds: 0, stars: 0, seenLevel: 1, owned: [], worn: {}, bed: '', quests: null, bosses: {}, speedBest: 0, speedDay: '', days: {}, badges: [], done: 0, tracks: {}, tickets: 0, arcade: { best: {} }, sound: true, mic: false };
   }
   /* One player can hatch several subjects. Seeds, stars, level, shop items, bed and quests are shared.
      The active subject's progress sits on the save itself; the others wait in save.tracks. */
@@ -286,6 +286,10 @@ const Engine = (() => {
     if (out.quests && (typeof out.quests !== 'object' || !Array.isArray(out.quests.list))) out.quests = null;
     if (typeof out.speedDay !== 'string') out.speedDay = '';
     out.done = +out.done || 0;
+    out.tickets = Math.max(0, out.tickets | 0);
+    const oldBest = p.arcade && typeof p.arcade === 'object' && p.arcade.best && typeof p.arcade.best === 'object' ? p.arcade.best : {};
+    out.arcade = { best: {} };
+    for (const g of GAMES) if ((oldBest[g.id] | 0) > 0) out.arcade.best[g.id] = oldBest[g.id] | 0;
     const tracks = {};
     if (p.tracks && typeof p.tracks === 'object') for (const key in p.tracks) {
       const t = p.tracks[key];
@@ -410,6 +414,7 @@ const Engine = (() => {
     const key = dateKey(now);
     const day = save.days[key] || (save.days[key] = { q: 0, ok: 0, rounds: 0, hatched: 0, grown: 0 });
     day.rounds++;
+    if (round.asked > 0 && round.ok >= round.asked * TICKET_RATE) giveTicket(save, now);
     return questEvent(save, 'rounds', 1, now);
   }
 
@@ -467,7 +472,7 @@ const Engine = (() => {
       q.n = Math.min(q.goal, max ? Math.max(q.n, n) : q.n + n);
       if (q.n >= q.goal) { q.done = true; save.seeds += QUEST_SEEDS; save.stars += STARS.quest; out.push({ type: q.type, goal: q.goal }); }
     }
-    if (out.length && !qs.bonus && qs.list.every(q => q.done)) { qs.bonus = true; save.seeds += QUEST_BONUS; out.push({ type: 'all', goal: qs.list.length }); }
+    if (out.length && !qs.bonus && qs.list.every(q => q.done)) { qs.bonus = true; save.seeds += QUEST_BONUS; giveTicket(save, now); out.push({ type: 'all', goal: qs.list.length }); }
     return out;
   }
 
@@ -496,6 +501,7 @@ const Engine = (() => {
     else if (boss.i >= boss.qs.length) {
       res.over = 'win'; res.seeds += BOSS_SEEDS; res.stars = STARS.boss;
       save.bosses[boss.key].won = now;
+      giveTicket(save, now);
     }
     save.seeds += res.seeds; save.stars += res.stars;
     if (res.over === 'win') res.quests = questEvent(save, 'boss', 1, now);
@@ -519,6 +525,47 @@ const Engine = (() => {
     return res;
   }
 
+  /* Pet Park: tickets come from doing well at math, and each mini game costs one. Games pay no seeds or stars. */
+  const TICKET_RATE = 0.75; // a round with this share right earns a ticket, the same point where the game cheers "Great hatching!"
+  function giveTicket(save, now) {
+    const key = dateKey(now);
+    const day = save.days[key] || (save.days[key] = { q: 0, ok: 0, rounds: 0, hatched: 0, grown: 0 });
+    save.tickets = (save.tickets | 0) + 1;
+    day.tix = (day.tix | 0) + 1;
+  }
+  const GAMES = [
+    { id: 'catch', name: 'Egg Catch', icon: '🥚', level: 2, fewer: false },
+    { id: 'pop', name: 'Pop-up Pets', icon: '🐹', level: 4, fewer: false },
+    { id: 'memory', name: 'Pet Memory', icon: '🃏', level: 6, fewer: true }, // score = moves, so fewer is better
+  ];
+  const gamesOpen = save => GAMES.filter(g => levelInfo(save.stars).level >= g.level).map(g => g.id);
+  function startGame(save, id, now) {
+    if (!(save.tickets > 0) || !gamesOpen(save).includes(id)) return false;
+    const key = dateKey(now);
+    const day = save.days[key] || (save.days[key] = { q: 0, ok: 0, rounds: 0, hatched: 0, grown: 0 });
+    save.tickets--;
+    day.games = (day.games | 0) + 1;
+    return true;
+  }
+  function gameFinish(save, id, score) {
+    const g = GAMES.find(x => x.id === id), old = save.arcade.best[id];
+    const best = !!g && score > 0 && (!old || (g.fewer ? score < old : score > old));
+    if (best) save.arcade.best[id] = score;
+    return { best };
+  }
+  /* Every pet and warm egg she has, across all her subjects, most grown first. Cold eggs stay hidden. */
+  function petRoster(save) {
+    const out = [];
+    for (const key of [save.subject, ...Object.keys(save.tracks || {})]) {
+      const t = key === save.subject ? save : save.tracks[key];
+      for (const f of SUBJECTS[key].facts) {
+        const stage = t.facts[f.id].s;
+        if (stage >= 1) out.push({ id: f.id, stage, wear: t.worn[f.id] || {} });
+      }
+    }
+    return out.sort((p, q) => q.stage - p.stage); // stable sort keeps current subject first within a stage
+  }
+
   /* Turn what the microphone heard into a number. Takes the last number in the sentence. */
   const UNITS = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19 };
   const TENS = { twenty: 20, thirty: 30, forty: 40, fourty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
@@ -540,7 +587,8 @@ const Engine = (() => {
 
   return { SUBJECTS, NAMES, find, pose, dayStart, dateKey, newSave, repair, startRound, nextQuestion, answer, finishRound, stats, parseSpoken,
     ROUND_LEN, MAX_LEARNERS, FAST_MS, SOLID_MS, QUICK_MS, LEVEL_MAX, SPEED_LEVEL, BOSS_HEARTS, STARS,
-    same, limits, switchSubject, subjectsOf, starsFor, levelInfo, ensureQuests, questEvent, miss, bossList, startBoss, bossAnswer, speedPool, speedOpen, speedQuestion, speedFinish };
+    same, limits, switchSubject, subjectsOf, starsFor, levelInfo, ensureQuests, questEvent, miss, bossList, startBoss, bossAnswer, speedPool, speedOpen, speedQuestion, speedFinish,
+    GAMES, gamesOpen, startGame, gameFinish, petRoster };
 })();
 </script>
 

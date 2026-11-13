@@ -369,4 +369,87 @@ test('one player, several subjects: progress is kept apart, the wallet is shared
   assert.equal(fixed.facts['w3:said'].s, 4);
 });
 
+test('pet park tickets: a great round, a boss win and all quests each earn one, and they stack', () => {
+  let now = new Date(2026, 0, 5, 16).getTime();
+  const save = E.newSave(now, 'times', 'T');
+  assert.equal(save.tickets, 0);
+  const round = (ok, asked) => Object.assign(E.startRound(), { ok, asked });
+  save.quests = { day: E.dateKey(now), run: 0, bonus: true, list: [] };
+  E.finishRound(save, round(9, 12), now); assert.equal(save.tickets, 1, '9 of 12 earns one');
+  E.finishRound(save, round(8, 12), now); assert.equal(save.tickets, 1, '8 of 12 does not');
+  E.finishRound(save, round(3, 4), now); assert.equal(save.tickets, 2, 'a short round at 75% counts');
+  E.finishRound(save, round(0, 0), now); assert.equal(save.tickets, 2, 'an empty round earns nothing');
+  assert.equal(save.days[E.dateKey(now)].tix, 2);
+  const g = E.SUBJECTS.times.groups.find(x => x.key === 'x7');
+  for (const id of g.ids) save.facts[id] = { s: 3, due: E.dayStart(now, 2), seen: 1, r: 2, w: 0, last: 0 };
+  const boss = E.startBoss(save, 'x7', now, seeded(4));
+  let res; for (let i = 0; i < 10; i++) res = E.bossAnswer(save, boss, boss.qs[boss.i].ans, now);
+  assert.equal(res.over, 'win'); assert.equal(save.tickets, 3, 'a boss win earns one');
+  save.quests = { day: E.dateKey(now), run: 0, bonus: false, list: [{ type: 'rounds', goal: 1, n: 0, done: false }] };
+  E.finishRound(save, round(0, 12), now); assert.equal(save.tickets, 4, 'all quests done earns one');
+  E.finishRound(save, round(0, 12), now); assert.equal(save.tickets, 4, 'the quest ticket is paid once a day');
+  now = E.dayStart(now, 1) + 9 * HOUR;
+  save.quests = { day: E.dateKey(now), run: 0, bonus: false, list: [{ type: 'rounds', goal: 1, n: 0, done: false }] };
+  E.finishRound(save, round(12, 12), now); assert.equal(save.tickets, 6, 'great round + last quest = 2');
+  assert.equal(save.days[E.dateKey(now)].tix, 2);
+});
+
+test('pet park games: unlock by level, cost one ticket, keep bests, pay nothing', () => {
+  const now = new Date(2026, 0, 5, 16).getTime();
+  const save = E.newSave(now, 'times', 'T');
+  assert.deepEqual(E.GAMES.map(g => [g.id, g.level]), [['catch', 2], ['pop', 4], ['memory', 6]]);
+  assert.deepEqual(E.gamesOpen(save), []);
+  save.stars = E.starsFor(4);
+  assert.deepEqual(E.gamesOpen(save), ['catch', 'pop']);
+  assert.equal(E.startGame(save, 'catch', now), false, 'no ticket');
+  save.tickets = 1;
+  assert.equal(E.startGame(save, 'memory', now), false, 'locked');
+  assert.equal(E.startGame(save, 'nope', now), false);
+  assert.equal(save.tickets, 1);
+  assert.equal(E.startGame(save, 'catch', now), true);
+  assert.equal(save.tickets, 0);
+  assert.equal(save.days[E.dateKey(now)].games, 1);
+  assert.equal(E.startGame(save, 'catch', now), false, 'one ticket, one game');
+  const seeds = save.seeds, stars = save.stars;
+  assert.deepEqual(E.gameFinish(save, 'catch', 0), { best: false });
+  assert.deepEqual(E.gameFinish(save, 'catch', 12), { best: true });
+  assert.deepEqual(E.gameFinish(save, 'catch', 9), { best: false });
+  assert.deepEqual(E.gameFinish(save, 'memory', 14), { best: true });
+  assert.deepEqual(E.gameFinish(save, 'memory', 18), { best: false });
+  assert.deepEqual(E.gameFinish(save, 'memory', 11), { best: true }, 'fewer moves is better');
+  assert.deepEqual(save.arcade.best, { catch: 12, memory: 11 });
+  assert.deepEqual([save.seeds, save.stars], [seeds, stars], 'games pay no seeds or stars');
+});
+
+test('pet park saves: old saves get no tickets, bad data is fixed, tickets travel across subjects', () => {
+  const now = new Date(2026, 0, 5, 16).getTime();
+  const save = E.newSave(now, 'times', 'T');
+  const old = JSON.parse(JSON.stringify(save)); delete old.tickets; delete old.arcade;
+  const p = E.repair(old, now);
+  assert.deepEqual([p.tickets, p.arcade], [0, { best: {} }]);
+  const j = E.repair(Object.assign(JSON.parse(JSON.stringify(save)), { tickets: -4, arcade: { best: { catch: 'x', pop: 7.6, memory: -2, nope: 5 } } }), now);
+  assert.deepEqual([j.tickets, j.arcade], [0, { best: { pop: 7 } }]);
+  assert.deepEqual(E.repair(JSON.parse(JSON.stringify(j)), now), j, 'loading twice changes nothing');
+  assert.deepEqual(E.repair(Object.assign(JSON.parse(JSON.stringify(save)), { arcade: 'broken' }), now).arcade, { best: {} });
+  save.tickets = 3; save.arcade.best.catch = 20;
+  E.switchSubject(save, 'spell3');
+  assert.deepEqual([save.tickets, save.arcade.best.catch], [3, 20]);
+});
+
+test('pet park pets: most grown first, current subject first, outfits from every subject, no cold eggs', () => {
+  const now = new Date(2026, 0, 5, 16).getTime();
+  const save = E.newSave(now, 'times', 'T');
+  assert.deepEqual(E.petRoster(save), []);
+  save.facts['2x3'].s = 1; save.facts['2x4'].s = 3; save.facts['5x5'].s = 4; save.worn['5x5'] = { hat: 'crown' };
+  E.switchSubject(save, 'spell3');
+  save.facts['w3:said'].s = 4; save.worn['w3:said'] = { hat: 'party' }; save.facts['w3:they'].s = 2;
+  assert.deepEqual(E.petRoster(save), [
+    { id: 'w3:said', stage: 4, wear: { hat: 'party' } },
+    { id: '5x5', stage: 4, wear: { hat: 'crown' } },
+    { id: '2x4', stage: 3, wear: {} },
+    { id: 'w3:they', stage: 2, wear: {} },
+    { id: '2x3', stage: 1, wear: {} },
+  ]);
+});
+
 console.log(`\n${passed} tests passed`);
